@@ -37,6 +37,10 @@ uv run tf-mcp
 
 This starts the MCP (Model Context Protocol) server for use with Claude Desktop or other MCP-compatible clients.
 
+## Client Demo
+
+A working client application that uses this server as its backend is available at [biblical-text-quizz-generator](https://github.com/larsgson/biblical-text-quizz-generator). It is a web-based quiz tool for biblical Hebrew and Greek morphology, demonstrating how a frontend can consume the REST API endpoints (passage retrieval, morphological search, quiz generation, and AI-assisted quiz building) provided by this server.
+
 ## API Endpoints
 
 | Method | Endpoint | Description |
