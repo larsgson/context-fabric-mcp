@@ -3,7 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from text_fabric_mcp.api import app
+from context_fabric_mcp.api import app
 
 
 @pytest.fixture(scope="module")

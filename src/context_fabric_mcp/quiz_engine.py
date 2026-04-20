@@ -9,8 +9,8 @@ import random
 from pathlib import Path
 from typing import Any
 
-from text_fabric_mcp.cf_engine import WORD_FEATURES, WORD_TYPE, CFEngine
-from text_fabric_mcp.quiz_models import (
+from context_fabric_mcp.cf_engine import WORD_FEATURES, WORD_TYPE, CFEngine
+from context_fabric_mcp.quiz_models import (
     FeatureVisibility,
     QuizDefinition,
     QuizQuestion,

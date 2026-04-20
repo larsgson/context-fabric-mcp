@@ -14,16 +14,16 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from text_fabric_mcp.cf_engine import CFEngine
-from text_fabric_mcp.quiz_engine import QuizStore, generate_session
-from text_fabric_mcp.quiz_models import QuizDefinition
+from context_fabric_mcp.cf_engine import CFEngine
+from context_fabric_mcp.quiz_engine import QuizStore, generate_session
+from context_fabric_mcp.quiz_models import QuizDefinition
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Text-Fabric MCP API",
-    description="Biblical text analysis API powered by Text-Fabric",
+    title="Context-Fabric MCP API",
+    description="Biblical text analysis API powered by Context-Fabric",
     version="0.1.0",
 )
 
@@ -282,7 +282,7 @@ def chat_endpoint(req: ChatRequest):
             detail="Chat unavailable: GOOGLE_API_KEY not configured",
         )
     try:
-        from text_fabric_mcp.chat import chat
+        from context_fabric_mcp.chat import chat
 
         return chat(engine, req.message, req.history)
     except Exception as e:
@@ -299,7 +299,7 @@ def chat_quiz_endpoint(req: ChatRequest):
             detail="Chat unavailable: GOOGLE_API_KEY not configured",
         )
     try:
-        from text_fabric_mcp.chat import chat_quiz
+        from context_fabric_mcp.chat import chat_quiz
 
         return chat_quiz(engine, req.message, req.history)
     except Exception as e:

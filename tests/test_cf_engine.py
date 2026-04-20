@@ -6,7 +6,7 @@ TF-format data for BHSA and Nestle 1904).
 
 import pytest
 
-from text_fabric_mcp.cf_engine import CFEngine
+from context_fabric_mcp.cf_engine import CFEngine
 
 
 @pytest.fixture(scope="module")

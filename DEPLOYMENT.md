@@ -13,7 +13,7 @@ Free tier limits: 15 requests/minute, 1,000 requests/day, 250,000 tokens/minute 
 
 ---
 
-## Backend: text-fabric-mcp
+## Backend: context-fabric-mcp
 
 ### Local Development
 
@@ -21,7 +21,7 @@ Free tier limits: 15 requests/minute, 1,000 requests/day, 250,000 tokens/minute 
 cp .env.example .env   # configure API keys
 
 # Start the API server
-uv run tf-api
+uv run cf-api
 
 # Run tests
 uv run pytest
@@ -47,7 +47,7 @@ fly launch
 Edit the generated `fly.toml`:
 
 ```toml
-app = "text-fabric-mcp"
+app = "context-fabric-mcp"
 primary_region = "ams"
 
 [build]
@@ -117,7 +117,7 @@ Add to `fly.toml`:
 #### Setup
 
 1. Go to [railway.app](https://railway.app) and sign up
-2. Create new project > Deploy from GitHub Repo > select `text-fabric-mcp`
+2. Create new project > Deploy from GitHub Repo > select `context-fabric-mcp`
 3. Railway auto-detects the Dockerfile
 
 #### Configure

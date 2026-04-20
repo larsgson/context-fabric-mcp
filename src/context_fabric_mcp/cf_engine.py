@@ -16,7 +16,7 @@ from typing import Any
 import cfabric
 from cfabric.core.api import Api
 
-from text_fabric_mcp.models import (
+from context_fabric_mcp.models import (
     BookInfo,
     FeatureInfo,
     ObjectTypeInfo,

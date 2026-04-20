@@ -11,9 +11,9 @@ from typing import Any
 from google import genai
 from google.genai import types
 
-from text_fabric_mcp.cf_engine import CFEngine
-from text_fabric_mcp.quiz_engine import generate_session
-from text_fabric_mcp.quiz_models import FeatureConfig, FeatureVisibility, QuizDefinition
+from context_fabric_mcp.cf_engine import CFEngine
+from context_fabric_mcp.quiz_engine import generate_session
+from context_fabric_mcp.quiz_models import FeatureConfig, FeatureVisibility, QuizDefinition
 
 logger = logging.getLogger(__name__)
 

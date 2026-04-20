@@ -1,3 +1,3 @@
 #!/bin/sh
 set -e
-exec tf-api
+exec cf-api

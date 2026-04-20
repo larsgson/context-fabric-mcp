@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "text-fabric-mcp"
+name = "context-fabric-mcp"
 version = "0.2.0"
 description = "Biblical text analysis API and MCP server powered by Context-Fabric"
 requires-python = ">=3.13"
@@ -27,11 +27,11 @@ build = [
 ]
 
 [project.scripts]
-tf-mcp = "text_fabric_mcp.server:main"
-tf-api = "text_fabric_mcp.api:main"
+cf-mcp = "context_fabric_mcp.server:main"
+cf-api = "context_fabric_mcp.api:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/text_fabric_mcp"]
+packages = ["src/context_fabric_mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

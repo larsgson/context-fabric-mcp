@@ -1,4 +1,4 @@
-# Text-Fabric MCP
+# Context-Fabric MCP
 
 Biblical text analysis server powered by [Context-Fabric](https://context-fabric.ai/), providing morphologically annotated Hebrew Bible (BHSA) and Greek New Testament (Nestle 1904) data via both an MCP (Model Context Protocol) interface and a REST API.
 
@@ -19,12 +19,12 @@ Biblical text analysis server powered by [Context-Fabric](https://context-fabric
 
 ```bash
 # Clone and set up
-git clone https://github.com/<your-org>/text-fabric-mcp.git
-cd text-fabric-mcp
+git clone https://github.com/larsgson/context-fabric-mcp.git
+cd context-fabric-mcp
 cp .env.example .env   # configure API keys
 
 # Start the REST API server
-uv run tf-api
+uv run cf-api
 ```
 
 The API runs at `http://localhost:8000`. The first request loads corpus data into memory (~2s with cached data).
@@ -32,7 +32,7 @@ The API runs at `http://localhost:8000`. The first request loads corpus data int
 ### Run as MCP server
 
 ```bash
-uv run tf-mcp
+uv run cf-mcp
 ```
 
 This starts the MCP (Model Context Protocol) server for use with Claude Desktop or other MCP-compatible clients.
@@ -86,7 +86,7 @@ When running as an MCP server, the following tools are available to AI assistant
 ## Project Structure
 
 ```
-src/text_fabric_mcp/
+src/context_fabric_mcp/
 ├── server.py          # MCP server entry point
 ├── api.py             # FastAPI HTTP layer
 ├── cf_engine.py       # Context-Fabric data access
@@ -148,8 +148,8 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for full instructions on deploying to Fly.io,
 
 ```bash
 # Docker
-docker build -t text-fabric-mcp .
-docker run -p 8000:8000 text-fabric-mcp
+docker build -t context-fabric-mcp .
+docker run -p 8000:8000 context-fabric-mcp
 ```
 
 ## License

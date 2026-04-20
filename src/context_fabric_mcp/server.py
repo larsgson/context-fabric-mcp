@@ -16,9 +16,9 @@ import os
 
 from cfabric_mcp import corpus_manager, mcp
 
-from text_fabric_mcp.cf_engine import CORPORA, CFEngine, _find_corpus_path
-from text_fabric_mcp.quiz_engine import generate_session
-from text_fabric_mcp.quiz_models import FeatureConfig, FeatureVisibility, QuizDefinition
+from context_fabric_mcp.cf_engine import CORPORA, CFEngine, _find_corpus_path
+from context_fabric_mcp.quiz_engine import generate_session
+from context_fabric_mcp.quiz_models import FeatureConfig, FeatureVisibility, QuizDefinition
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

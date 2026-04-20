@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-from text_fabric_mcp.cf_engine import CFEngine
-from text_fabric_mcp.quiz_engine import generate_session
-from text_fabric_mcp.quiz_models import FeatureConfig, FeatureVisibility, QuizDefinition
+from context_fabric_mcp.cf_engine import CFEngine
+from context_fabric_mcp.quiz_engine import generate_session
+from context_fabric_mcp.quiz_models import FeatureConfig, FeatureVisibility, QuizDefinition
 
 
 def register(mcp: FastMCP, engine: CFEngine) -> None:

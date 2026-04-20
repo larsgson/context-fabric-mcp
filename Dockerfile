@@ -6,7 +6,7 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 # Minimal src stub so pip install . can resolve the package
-RUN mkdir -p src/text_fabric_mcp && touch src/text_fabric_mcp/__init__.py
+RUN mkdir -p src/context_fabric_mcp && touch src/context_fabric_mcp/__init__.py
 RUN pip install --no-cache-dir .
 
 # Also install text-fabric for corpus pre-download (build-time only)
@@ -61,4 +61,4 @@ ENV QUIZ_DIR=/data/quizzes
 
 EXPOSE 8000
 
-CMD ["tf-api"]
+CMD ["cf-api"]
