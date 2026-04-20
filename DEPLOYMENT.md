@@ -1,15 +1,35 @@
 # Deployment Guide
 
-## Google Gemini API Key (for chat)
+## LLM API Keys (for chat)
 
-The `/api/chat` endpoint uses Google Gemini. A free-tier key is sufficient.
+The `/api/chat` and `/api/chat-quiz` endpoints use **Groq** (Llama 3.3 70B) as the primary
+provider and optionally fall back to **OpenAI** (gpt-4o-mini) on rate-limit / connection /
+5xx errors from Groq.
 
-1. Go to [Google AI Studio](https://aistudio.google.com/apikey)
-2. Sign in with a Google account
-3. Click **Create API Key**
-4. Copy the key and set it as `GOOGLE_API_KEY` in your deployment environment
+### Groq (primary, free tier)
 
-Free tier limits: 15 requests/minute, 1,000 requests/day, 250,000 tokens/minute (Gemini 2.5 Flash-Lite). No credit card required.
+1. Go to [console.groq.com/keys](https://console.groq.com/keys)
+2. Sign up (no credit card required)
+3. Create an API key
+4. Set it as `GROQ_API_KEY` in your deployment environment
+
+Groq's free tier is rate-limited per minute/day rather than capped cumulatively — see
+[console.groq.com/settings/limits](https://console.groq.com/settings/limits) for the
+current numbers. If traffic fits under the limits, usage is free indefinitely.
+
+### OpenAI (optional fallback)
+
+If Groq is rate-limited or temporarily unavailable, the server can transparently fall
+back to OpenAI. This is pay-as-you-go (no free tier), so a daily cap is enforced to
+prevent surprise bills.
+
+1. Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+2. Create an API key and add billing
+3. Set it as `OPENAI_API_KEY`
+4. Optionally tune `OPENAI_FALLBACK_DAILY_LIMIT` (default: 50 requests/day)
+
+Leave `OPENAI_API_KEY` unset to disable fallback entirely — Groq failures will then
+surface as chat errors to the client.
 
 ---
 
@@ -83,7 +103,9 @@ Add to `fly.toml`:
 
 ```bash
 fly secrets set API_KEY=your-shared-secret-here           # recommended, locks down the API
-fly secrets set GOOGLE_API_KEY=your-gemini-key-here       # optional, for chat (free tier)
+fly secrets set GROQ_API_KEY=your-groq-key-here           # primary chat provider (free tier)
+fly secrets set OPENAI_API_KEY=your-openai-key-here       # optional fallback (pay-as-you-go)
+fly secrets set OPENAI_FALLBACK_DAILY_LIMIT=50            # optional safety cap on fallback
 ```
 
 #### Deploy
@@ -137,7 +159,9 @@ In the Railway dashboard:
 ```
 PORT=8000
 API_KEY=your-shared-secret-here           # recommended, locks down the API
-GOOGLE_API_KEY=your-gemini-key-here       # optional, for chat (free tier)
+GROQ_API_KEY=your-groq-key-here           # primary chat provider (free tier)
+OPENAI_API_KEY=your-openai-key-here       # optional fallback (pay-as-you-go)
+OPENAI_FALLBACK_DAILY_LIMIT=50            # optional safety cap on fallback
 ```
 
 #### Deploy

@@ -276,15 +276,18 @@ def get_vocabulary(
 @app.post("/api/chat")
 def chat_endpoint(req: ChatRequest):
     """Send a message to the LLM with biblical text tools available."""
-    if not (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")):
+    if not (os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")):
         raise HTTPException(
             status_code=503,
-            detail="Chat unavailable: GOOGLE_API_KEY not configured",
+            detail="Chat unavailable: set GROQ_API_KEY (and optionally OPENAI_API_KEY for fallback)",
         )
     try:
-        from context_fabric_mcp.chat import chat
+        from context_fabric_mcp.chat import FallbackLimitExceeded, chat
 
         return chat(engine, req.message, req.history)
+    except FallbackLimitExceeded as e:
+        logger.warning("Chat unavailable: %s", e)
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error("Chat error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -293,15 +296,18 @@ def chat_endpoint(req: ChatRequest):
 @app.post("/api/chat-quiz")
 def chat_quiz_endpoint(req: ChatRequest):
     """AI-assisted quiz builder. Describe the quiz you want in natural language."""
-    if not (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")):
+    if not (os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")):
         raise HTTPException(
             status_code=503,
-            detail="Chat unavailable: GOOGLE_API_KEY not configured",
+            detail="Chat unavailable: set GROQ_API_KEY (and optionally OPENAI_API_KEY for fallback)",
         )
     try:
-        from context_fabric_mcp.chat import chat_quiz
+        from context_fabric_mcp.chat import FallbackLimitExceeded, chat_quiz
 
         return chat_quiz(engine, req.message, req.history)
+    except FallbackLimitExceeded as e:
+        logger.warning("Chat-quiz unavailable: %s", e)
+        raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error("Chat-quiz error: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -368,8 +374,13 @@ def generate_quiz_session(quiz_id: str):
     return session.model_dump()
 
 
-if not (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")):
-    logger.warning("GOOGLE_API_KEY not set. Chat endpoint will be unavailable.")
+if not (os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")):
+    logger.warning(
+        "No chat provider configured (set GROQ_API_KEY and/or OPENAI_API_KEY). "
+        "Chat endpoints will return 503."
+    )
+elif not os.getenv("OPENAI_API_KEY"):
+    logger.info("OPENAI_API_KEY not set — Groq failures will surface as chat errors.")
 
 
 def _provision_corpus_data():

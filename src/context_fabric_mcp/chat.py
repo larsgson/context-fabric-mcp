@@ -1,15 +1,27 @@
-"""LLM chat backend — calls Google Gemini API with CFEngine tools in an agentic loop."""
+"""LLM chat backend — Groq primary (Llama 3.3 70B) with OpenAI fallback (gpt-4o-mini).
+
+Both providers use the OpenAI-compatible chat-completions API, so a single SDK
+handles both. If Groq returns 429/5xx/connection errors, we transparently fall
+back to OpenAI, subject to a daily request cap to prevent surprise bills.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from google import genai
-from google.genai import types
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    OpenAI,
+    RateLimitError,
+)
 
 from context_fabric_mcp.cf_engine import CFEngine
 from context_fabric_mcp.quiz_engine import generate_session
@@ -25,10 +37,70 @@ SYSTEM_PROMPT = (_PROMPTS_DIR / "system_prompt.md").read_text()
 SYSTEM_PROMPT_QUIZ = (_PROMPTS_DIR / "system_prompt_quiz.md").read_text()
 
 # ---------------------------------------------------------------------------
+# Provider configuration
+# ---------------------------------------------------------------------------
+
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_FALLBACK_DAILY_LIMIT = int(os.getenv("OPENAI_FALLBACK_DAILY_LIMIT", "50"))
+
+_FALLBACK_EXCEPTIONS = (
+    RateLimitError,
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+)
+
+
+class FallbackLimitExceeded(Exception):
+    """Raised when the OpenAI fallback daily request cap has been hit."""
+
+
+def _groq_client() -> OpenAI | None:
+    key = os.getenv("GROQ_API_KEY")
+    if not key:
+        return None
+    return OpenAI(api_key=key, base_url="https://api.groq.com/openai/v1")
+
+
+def _openai_client() -> OpenAI | None:
+    key = os.getenv("OPENAI_API_KEY")
+    if not key:
+        return None
+    return OpenAI(api_key=key)
+
+
+# ---------------------------------------------------------------------------
+# Daily fallback guard
+# ---------------------------------------------------------------------------
+
+_fallback_lock = threading.Lock()
+_fallback_state: dict[str, Any] = {"date": None, "count": 0}
+
+
+def _reserve_fallback_slot() -> int:
+    """Reserve one OpenAI fallback call for today. Raises if the cap is hit.
+
+    Returns the (new) count after reservation.
+    """
+    today = datetime.now(timezone.utc).date()
+    with _fallback_lock:
+        if _fallback_state["date"] != today:
+            _fallback_state["date"] = today
+            _fallback_state["count"] = 0
+        if _fallback_state["count"] >= OPENAI_FALLBACK_DAILY_LIMIT:
+            raise FallbackLimitExceeded(
+                f"OpenAI fallback daily cap ({OPENAI_FALLBACK_DAILY_LIMIT}) reached"
+            )
+        _fallback_state["count"] += 1
+        return _fallback_state["count"]
+
+
+# ---------------------------------------------------------------------------
 # Tool declarations shared by both chat modes
 # ---------------------------------------------------------------------------
 
-_EXPLORATION_TOOLS = [
+_EXPLORATION_TOOL_SPECS = [
     {
         "name": "list_corpora",
         "description": "List available corpora.",
@@ -309,7 +381,7 @@ _EXPLORATION_TOOLS = [
     },
 ]
 
-_BUILD_QUIZ_TOOL = {
+_BUILD_QUIZ_TOOL_SPEC = {
     "name": "build_quiz",
     "description": (
         "Build and validate a quiz definition. Runs the search template against "
@@ -363,9 +435,13 @@ _BUILD_QUIZ_TOOL = {
     },
 }
 
-# Tool sets for each chat mode
-GENERAL_TOOLS = types.Tool(function_declarations=_EXPLORATION_TOOLS)
-QUIZ_TOOLS = types.Tool(function_declarations=_EXPLORATION_TOOLS + [_BUILD_QUIZ_TOOL])
+
+def _wrap_for_openai(spec: dict[str, Any]) -> dict[str, Any]:
+    return {"type": "function", "function": spec}
+
+
+GENERAL_TOOLS = [_wrap_for_openai(t) for t in _EXPLORATION_TOOL_SPECS]
+QUIZ_TOOLS = [_wrap_for_openai(t) for t in _EXPLORATION_TOOL_SPECS + [_BUILD_QUIZ_TOOL_SPEC]]
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +596,53 @@ def _execute_build_quiz(engine: CFEngine, args: dict[str, Any]) -> Any:
 
 
 # ---------------------------------------------------------------------------
+# Completion call with Groq → OpenAI fallback
+# ---------------------------------------------------------------------------
+
+
+def _create_completion(
+    messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+) -> Any:
+    """Call Groq; on rate-limit/connection/5xx, fall back to OpenAI (with daily guard)."""
+    groq = _groq_client()
+    openai = _openai_client()
+
+    if groq is None and openai is None:
+        raise RuntimeError(
+            "No LLM provider configured. Set GROQ_API_KEY and/or OPENAI_API_KEY."
+        )
+
+    # Prefer Groq. If only OpenAI is configured, use it directly (no fallback).
+    if groq is not None:
+        try:
+            return groq.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=messages,
+                tools=tools,
+                tool_choice="auto",
+            )
+        except _FALLBACK_EXCEPTIONS as e:
+            if openai is None:
+                logger.warning("Groq failed (%s) and no OpenAI fallback configured", e)
+                raise
+            count = _reserve_fallback_slot()
+            logger.warning(
+                "Groq failed (%s); falling back to OpenAI %s (fallback #%d/%d today)",
+                e,
+                OPENAI_MODEL,
+                count,
+                OPENAI_FALLBACK_DAILY_LIMIT,
+            )
+
+    return openai.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=messages,
+        tools=tools,
+        tool_choice="auto",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Chat loop (shared by both modes)
 # ---------------------------------------------------------------------------
 
@@ -529,8 +652,7 @@ def _chat_loop(
     message: str,
     history: list[dict[str, Any]] | None,
     system_prompt: str,
-    tools: types.Tool,
-    model: str,
+    tools: list[dict[str, Any]],
     max_turns: int,
 ) -> dict[str, Any]:
     """Run a chat turn with tool use loop.
@@ -538,73 +660,64 @@ def _chat_loop(
     Returns:
         {"reply": str, "tool_calls": [...]}
     """
-    client = genai.Client()
-
-    config = types.GenerateContentConfig(
-        system_instruction=system_prompt,
-        tools=[tools],
-    )
-
-    contents: list[types.Content] = []
+    messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
     if history:
         for msg in history:
-            role = "model" if msg["role"] == "assistant" else "user"
-            contents.append(
-                types.Content(role=role, parts=[types.Part(text=msg["content"])])
-            )
-    contents.append(types.Content(role="user", parts=[types.Part(text=message)]))
+            role = "assistant" if msg["role"] == "assistant" else "user"
+            messages.append({"role": role, "content": msg["content"]})
+    messages.append({"role": "user", "content": message})
 
     tool_calls_log: list[dict[str, Any]] = []
 
     for _ in range(max_turns):
-        response = client.models.generate_content(
-            model=model,
-            contents=contents,
-            config=config,
-        )
+        response = _create_completion(messages, tools)
 
-        # Guard against empty responses (safety filters, overloaded model, etc.)
-        if (
-            not response.candidates
-            or response.candidates[0].content is None
-            or not response.candidates[0].content.parts
-        ):
-            reason = (
-                getattr(response.candidates[0], "finish_reason", "unknown")
-                if response.candidates
-                else "no candidates"
-            )
-            logger.warning("Gemini returned empty content: %s", reason)
+        if not response.choices:
+            logger.warning("LLM returned no choices")
             return {
                 "reply": "I wasn't able to generate a response. Please try rephrasing your question.",
                 "tool_calls": tool_calls_log,
             }
 
-        candidate = response.candidates[0]
+        msg = response.choices[0].message
+        tool_calls = msg.tool_calls or []
 
-        function_calls = [
-            part.function_call
-            for part in candidate.content.parts
-            if part.function_call is not None
-        ]
-
-        if not function_calls:
-            text_parts = [part.text for part in candidate.content.parts if part.text]
+        if not tool_calls:
             return {
-                "reply": "\n".join(text_parts)
-                or "I wasn't able to generate a response.",
+                "reply": msg.content or "I wasn't able to generate a response.",
                 "tool_calls": tool_calls_log,
             }
 
-        contents.append(candidate.content)
+        # Append the assistant turn (with tool_calls) so subsequent tool
+        # messages reference valid tool_call_ids.
+        messages.append(
+            {
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in tool_calls
+                ],
+            }
+        )
 
-        function_response_parts = []
-        for fc in function_calls:
-            args = dict(fc.args) if fc.args else {}
-            logger.info("Tool call: %s(%s)", fc.name, json.dumps(args)[:200])
+        for tc in tool_calls:
+            name = tc.function.name
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            logger.info("Tool call: %s(%s)", name, json.dumps(args)[:200])
 
             try:
-                result = _execute_tool(engine, fc.name, args)
+                result = _execute_tool(engine, name, args)
                 result_str = json.dumps(result, ensure_ascii=False, default=str)
                 if len(result_str) > 20000:
                     result_str = result_str[:20000] + "... (truncated)"
@@ -615,24 +728,20 @@ def _chat_loop(
                 )
             except Exception as e:
                 logger.error("Tool error: %s", e)
+                result_str = json.dumps({"error": str(e)})
                 result_data = {"error": str(e)}
 
             tool_calls_log.append(
+                {"name": name, "input": args, "result": result_data}
+            )
+
+            messages.append(
                 {
-                    "name": fc.name,
-                    "input": args,
-                    "result": result_data,
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result_str,
                 }
             )
-
-            function_response_parts.append(
-                types.Part.from_function_response(
-                    name=fc.name,
-                    response={"result": result_data},
-                )
-            )
-
-        contents.append(types.Content(role="user", parts=function_response_parts))
 
     return {
         "reply": "I've reached the maximum number of tool calls. Please try a more specific question.",
@@ -649,12 +758,11 @@ def chat(
     engine: CFEngine,
     message: str,
     history: list[dict[str, Any]] | None = None,
-    model: str = "gemini-2.5-flash",
     max_turns: int = 10,
 ) -> dict[str, Any]:
     """General biblical text chat."""
     return _chat_loop(
-        engine, message, history, SYSTEM_PROMPT, GENERAL_TOOLS, model, max_turns
+        engine, message, history, SYSTEM_PROMPT, GENERAL_TOOLS, max_turns
     )
 
 
@@ -662,10 +770,9 @@ def chat_quiz(
     engine: CFEngine,
     message: str,
     history: list[dict[str, Any]] | None = None,
-    model: str = "gemini-2.5-flash",
     max_turns: int = 10,
 ) -> dict[str, Any]:
     """Quiz-builder chat — has access to build_quiz tool."""
     return _chat_loop(
-        engine, message, history, SYSTEM_PROMPT_QUIZ, QUIZ_TOOLS, model, max_turns
+        engine, message, history, SYSTEM_PROMPT_QUIZ, QUIZ_TOOLS, max_turns
     )
