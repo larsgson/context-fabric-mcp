@@ -1,4 +1,4 @@
-"""LLM chat backend — Groq primary (Llama 3.3 70B) with OpenAI fallback (gpt-4o-mini).
+"""LLM chat backend — Groq primary (GPT-OSS 120B) with OpenAI fallback (gpt-4o-mini).
 
 Both providers use the OpenAI-compatible chat-completions API, so a single SDK
 handles both. If Groq returns 429/5xx/connection errors, we transparently fall
@@ -40,7 +40,7 @@ SYSTEM_PROMPT_QUIZ = (_PROMPTS_DIR / "system_prompt_quiz.md").read_text()
 # Provider configuration
 # ---------------------------------------------------------------------------
 
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_FALLBACK_DAILY_LIMIT = int(os.getenv("OPENAI_FALLBACK_DAILY_LIMIT", "50"))
 

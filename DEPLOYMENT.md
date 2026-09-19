@@ -2,7 +2,7 @@
 
 ## LLM API Keys (for chat)
 
-The `/api/chat` and `/api/chat-quiz` endpoints use **Groq** (Llama 3.3 70B) as the primary
+The `/api/chat` and `/api/chat-quiz` endpoints use **Groq** (GPT-OSS 120B) as the primary
 provider and optionally fall back to **OpenAI** (gpt-4o-mini) on rate-limit / connection /
 5xx errors from Groq.
 

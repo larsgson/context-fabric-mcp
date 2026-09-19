@@ -10,7 +10,7 @@ Biblical text analysis server powered by [Context-Fabric](https://context-fabric
 - **Morphological search** -- find words by part of speech, verbal stem, tense, gender, number, person, state, and more
 - **Structural search** -- find syntactic patterns (clauses, phrases) using search templates
 - **Vocabulary extraction** -- unique lexemes in a passage sorted by corpus frequency
-- **LLM chat** -- agentic conversation powered by Groq (Llama 3.3 70B, free tier) with optional OpenAI fallback; can call all the above tools
+- **LLM chat** -- agentic conversation powered by Groq (GPT-OSS 120B, free tier) with optional OpenAI fallback; can call all the above tools
 - **Quiz generation** -- configurable quiz engine for Hebrew morphology drills
 - **AI-assisted quiz builder** -- teachers describe a quiz in natural language and the AI builds a validated quiz definition
 - **Dual interface** -- same engine exposed as MCP tools (for AI assistants) and as a FastAPI HTTP API (for web frontends)
@@ -143,7 +143,7 @@ Tests require corpus data on first run (cached in `~/text-fabric-data/`).
 | `GROQ_API_KEY` | For chat | Primary LLM provider for `/api/chat` and `/api/chat-quiz`. Free tier at [console.groq.com/keys](https://console.groq.com/keys). |
 | `OPENAI_API_KEY` | No | Optional fallback provider. Used automatically if Groq is rate-limited/unavailable. |
 | `OPENAI_FALLBACK_DAILY_LIMIT` | No | Max OpenAI fallback calls per day to prevent surprise bills. Default: 50. |
-| `GROQ_MODEL` | No | Override Groq model (default: `llama-3.3-70b-versatile`). |
+| `GROQ_MODEL` | No | Override Groq model (default: `openai/gpt-oss-120b`). |
 | `OPENAI_MODEL` | No | Override OpenAI model (default: `gpt-4o-mini`). |
 
 ## Deployment
