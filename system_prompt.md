@@ -32,6 +32,12 @@ clause typ=Way0
   phrase function=Pred
     word sp=verb vs=qal
 ```
+Scope a search to a passage by nesting inside book and chapter (they are node types, not features of clause/phrase/word):
+```
+book book=Psalms
+  chapter chapter=23
+    clause
+```
 Operators: `<` = followed by (adjacency), `<<` = comes before (sequence)
 
 ### Phrase features: typ (NP/VP/PP/CP/AdjP/AdvP), function (Subj/Objc/Pred/Cmpl/Adju), det, rela
@@ -56,7 +62,8 @@ Greek lexemes are in Greek script: λόγος, θεός, ἄνθρωπος
 
 ## Strategy
 
-- Passage text: get_passage. Word or clause structure: get_passage, then get_word_context (or get_edge_features for dependencies).
+- Passage text: get_passage. Clause/phrase structure of a passage: one scoped search_constructions (see template syntax), not per-word lookups. Single-word analysis: get_word_context (or get_edge_features for dependencies).
+- Never search an unscoped node type like "clause" alone; it returns thousands of results.
 - Finding words: search_words for morphology; search_constructions or search_advanced for syntactic patterns. Use search_advanced return_type="count" or "statistics" for numbers.
 - Before searching, call describe_feature to see valid feature values, and search_syntax_guide if unsure of template syntax.
 - Comparisons: compare_distribution or search_comparative. Complex questions: chain tools (search, then context, then summarize).

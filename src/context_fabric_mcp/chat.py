@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from openai import (
+    DEFAULT_MAX_RETRIES,
     APIStatusError,
     APIConnectionError,
     APITimeoutError,
@@ -68,7 +69,12 @@ def _groq_client() -> OpenAI | None:
     key = os.getenv("GROQ_API_KEY")
     if not key:
         return None
-    return OpenAI(api_key=key, base_url="https://api.groq.com/openai/v1")
+    # With an OpenAI fallback, fail fast on 429 instead of letting the SDK sleep
+    # 30-60s between retries; without one, keep the SDK's default retries.
+    retries = 0 if os.getenv("OPENAI_API_KEY") else DEFAULT_MAX_RETRIES
+    return OpenAI(
+        api_key=key, base_url="https://api.groq.com/openai/v1", max_retries=retries
+    )
 
 
 def _openai_client() -> OpenAI | None:
