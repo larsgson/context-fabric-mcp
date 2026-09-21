@@ -789,3 +789,18 @@ class TestSearchAdvancedFlags:
     def test_results_are_not_annotated(self, engine: CFEngine):
         out = engine.search_advanced("clause", corpus="hebrew", book="PSA", chapter=23)
         assert "note" not in out and "capped" not in out
+
+
+class TestEdgeFeatures:
+    """Ruth 1:1's first clause is an independent clause: no mother edge."""
+
+    def test_clause_without_mother_says_so(self, engine: CFEngine):
+        clause = engine.get_context("RUT", 1, 1, 0, "hebrew")["clause"]["node"]
+        out = engine.get_edge_features(clause, "mother", "from", "hebrew")
+        assert out["edges"] == [] and out["source_type"] == "clause"
+        assert "no parent clause" in out["note"] and "not missing data" in out["note"]
+
+    def test_edges_present_carry_no_note(self, engine: CFEngine):
+        clause = engine.get_context("RUT", 1, 1, 0, "hebrew")["clause"]["node"]
+        out = engine.get_edge_features(clause, "functional_parent", "from", "hebrew")
+        assert out["edges"] and "note" not in out

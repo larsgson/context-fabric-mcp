@@ -1131,13 +1131,20 @@ class CFEngine:
                 entry["value"] = str(value)
             results.append(entry)
 
-        return {
+        output = {
             "node": node,
             "edge_feature": edge_feature,
             "direction": direction,
             "source_type": api.F.otype.v(node),
             "edges": results,
         }
+        if not results:
+            output["note"] = (
+                f"No '{edge_feature}' edges {direction} this node: it has no such "
+                f"relation. That is a real answer (e.g. a clause with no 'mother' "
+                f"has no parent clause), not missing data."
+            )
+        return output
 
     def compare_feature_distribution(
         self,
