@@ -400,6 +400,11 @@ _EXPLORATION_TOOL_SPECS = [
                     "type": "integer",
                     "description": "Max values per distribution",
                 },
+                "features": {
+                    "type": "object",
+                    "description": "Only count nodes with these values, e.g. {sp: verb}",
+                    "properties": {},
+                },
             },
             "required": ["feature", "sections"],
         },
@@ -583,6 +588,7 @@ def _execute_tool(engine: CFEngine, name: str, args: dict[str, Any]) -> Any:
             sections=args["sections"],
             node_type=args.get("node_type", "word"),
             top_n=args.get("top_n", 20),
+            features=args.get("features"),
         )
     elif name == "build_quiz":
         return _execute_build_quiz(engine, args)

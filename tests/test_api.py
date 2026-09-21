@@ -397,3 +397,21 @@ class TestScopedSearch:
         )
         assert resp.status_code == 400
         assert "repeats the scope" in resp.json()["detail"]
+
+
+class TestCompareDistributionAPI:
+    def test_exact_counts_with_filter(self, client):
+        resp = client.post(
+            "/api/compare/distribution",
+            json={"feature": "vt", "sections": [{"book": "GEN"}], "features": {"sp": "verb"}},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["comparison"]["GEN (hebrew)"]["total_count"] == 5060
+
+    def test_unknown_feature_is_400(self, client):
+        resp = client.post(
+            "/api/compare/distribution",
+            json={"feature": "vtt", "sections": [{"book": "GEN"}]},
+        )
+        assert resp.status_code == 400
+        assert "Did you mean vt" in resp.json()["detail"]

@@ -13,6 +13,7 @@ import os
 import re
 import textwrap
 import threading
+from collections import Counter
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -95,7 +96,11 @@ _EXCLUDE_FEATURES: dict[str, set[str]] = {
 }
 
 
-class TemplateError(ValueError):
+class QueryError(ValueError):
+    """A request the engine rejects with an explanation (mapped to HTTP 400)."""
+
+
+class TemplateError(QueryError):
     """Raised when a search template is malformed in a way Text-Fabric hides.
 
     Text-Fabric prints template errors to stdout and returns no results, so
@@ -127,6 +132,10 @@ def _check_feature_names(
 
 
 _SCOPE_TYPES = ("book", "chapter", "verse")
+
+# The cfabric_mcp search tool stops collecting matches at this many, so a
+# count/statistics total of exactly this size is a lower bound, not a total.
+_CF_RESULT_CAP = 10000
 
 # Result objects: text of nodes longer than this many slots is replaced by a
 # marker (a whole book or a long chapter would swamp the response), and
@@ -971,7 +980,7 @@ class CFEngine:
         self._ensure_loaded(corpus)
         from cfabric_mcp.tools import search as cf_search
 
-        return cf_search(
+        result = cf_search(
             template=self._prepare_template(
                 template, corpus, book, chapter, verse_start, verse_end
             )[0],
@@ -982,6 +991,24 @@ class CFEngine:
             limit=limit,
             corpus=corpus,
         )
+        notes = []
+        if return_type == "count":
+            notes.append(
+                "Count only: no items are returned. Use return_type='results' or "
+                "'passages' (or search_words) to list them."
+            )
+        if return_type in ("count", "statistics") and (
+            isinstance(result, dict) and result.get("total_count", 0) >= _CF_RESULT_CAP
+        ):
+            result["capped"] = True
+            notes.append(
+                f"Stopped at the {_CF_RESULT_CAP}-match cap: the real total is "
+                f"larger, so this is not a complete count. Narrow the search "
+                f"(book/chapter, a feature filter)."
+            )
+        if notes and isinstance(result, dict):
+            result["note"] = " ".join(notes)
+        return result
 
     def search_continue(
         self,
@@ -1118,41 +1145,79 @@ class CFEngine:
         sections: list[dict],
         node_type: str = "word",
         top_n: int = 20,
+        features: dict[str, str] | None = None,
     ) -> dict:
         """Compare feature value distributions across sections.
+
+        Counts nodes directly, so results are exact (no match cap).
 
         Args:
             feature: Feature name (e.g. "sp", "vs").
             sections: List of dicts with book (and optionally chapter, corpus).
-            node_type: Object type to count (default "word").
+            node_type: Object type to count (default "word"; "w" for greek).
             top_n: Max values per distribution.
+            features: Only count nodes with these feature values, e.g.
+                {"sp": "verb"} to compare verb tenses across books.
         """
-        from cfabric_mcp.tools import search as cf_search
-
         results = {}
         for sec in sections:
             corpus = sec.get("corpus", "hebrew")
-            book = sec["book"]
+            book = get_book(sec["book"])
             chapter = sec.get("chapter")
-            native_book = template_name(book, corpus)
+            api = self._ensure_loaded(corpus)
 
-            if chapter:
-                template = f"book book={native_book}\n  chapter chapter={chapter}\n    {node_type}\n"
-            else:
-                template = f"book book={native_book}\n  {node_type}\n"
+            node_type_ = node_type
+            if corpus == "greek" and node_type == "word":
+                node_type_ = WORD_TYPE["greek"]  # the model's usual name for it
+            if node_type_ not in api.F.otype.all:
+                raise QueryError(
+                    f"Unknown node_type {node_type!r} for {corpus}. Valid object "
+                    f"types: {', '.join(sorted(api.F.otype.all))}."
+                )
+            feat = self._feature(api, feature)
+            filters = [(self._feature(api, f), str(v)) for f, v in (features or {}).items()]
 
-            self._ensure_loaded(corpus)
-            stats = cf_search(
-                template=template,
-                return_type="statistics",
-                aggregate_features=[feature],
-                top_n=top_n,
-                corpus=corpus,
+            path = (section_name(book.code, corpus),) + (
+                (chapter,) if chapter else ()
             )
+            container = api.T.nodeFromSection(path)
+            if container is None:
+                raise QueryError(f"{book.code} {chapter} not found in {corpus}")
 
-            label = f"{get_book(book).code}" + (
-                f" {chapter}" if chapter else ""
-            ) + f" ({corpus})"
-            results[label] = stats
+            counts: Counter[str] = Counter()
+            not_applicable = matched = 0
+            for node in api.L.d(container, otype=node_type_):
+                if any(str(f.v(node)) != v for f, v in filters):
+                    continue
+                matched += 1
+                value = feat.v(node)
+                if value is None or str(value) == "NA":
+                    not_applicable += 1
+                else:
+                    counts[str(value)] += 1
+
+            ranked = counts.most_common(top_n)
+            label = f"{book.code}" + (f" {chapter}" if chapter else "") + f" ({corpus})"
+            results[label] = {
+                "total_count": matched,
+                "distribution": [
+                    {"value": v, "count": c, "percent": round(100 * c / matched, 1)}
+                    for v, c in ranked
+                ],
+                "not_applicable": not_applicable,
+                "distinct_values": len(counts),
+                "node_type": node_type_,
+                **({"filter": features} if features else {}),
+            }
 
         return {"feature": feature, "comparison": results}
+
+    @staticmethod
+    def _feature(api: Api, name: str) -> Any:
+        """Look up a node feature by name, or raise a QueryError with a hint."""
+        feat = api.Fs(name) if name in api.Fall() else None
+        if feat is None:
+            close = difflib.get_close_matches(name, api.Fall(), n=3)
+            hint = f" Did you mean {', '.join(close)}?" if close else ""
+            raise QueryError(f"Unknown feature {name!r}.{hint}")
+        return feat

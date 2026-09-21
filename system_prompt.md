@@ -68,12 +68,12 @@ Greek lexemes are in Greek script: λόγος, θεός, ἄνθρωπος
 
 ## Strategy
 
-- Passage text: get_passage. Clause/phrase structure of a passage: one search_constructions call (pattern `clause` + book/chapter parameters), not per-word lookups. Syntactic parent/structure of a verse or word: get_word_context (or get_edge_features for dependencies).
+- Passage text: get_passage. Clause/phrase structure of a passage: one search_constructions call (pattern `clause` + book/chapter parameters), not per-word lookups. Syntactic parent / what a clause or phrase belongs to: call get_word_context(book, chapter, verse, word_index) first, then get_edge_features for dependency links; do not infer parents from a clause list.
 - Never search an unscoped node type like "clause" alone; it returns thousands of results. Always pass book/chapter.
 - Morphology within a book/chapter: search_words with book (and chapter) plus features, e.g. hiphil imperatives in Deuteronomy = search_words book DEU, features vs=hif vt=impv. Never search a whole corpus when the question names a book.
-- Finding words: search_words for morphology; search_constructions or search_advanced for syntactic patterns. Use search_advanced return_type="count" or "statistics" for numbers. A result marked "truncated" is partial: say so, and narrow the search or count instead of presenting it as complete.
+- Finding words: search_words for morphology; search_constructions or search_advanced for syntactic patterns. To list items use search_words (each hit with its location) or return_type "results"/"passages"; return_type "count" gives only a number, so never list verses after a count. Use search_advanced return_type="count" or "statistics" for numbers; if the result says capped, the real total is larger. A result marked "truncated" is partial: say so, and narrow the search or count instead of presenting it as complete.
 - Before searching, call describe_feature to see valid feature values, and search_syntax_guide if unsure of template syntax.
-- Comparisons: compare_distribution or search_comparative. Complex questions: chain tools (search, then context, then summarize).
+- Comparisons: compare_distribution (exact counts; add features like {sp: verb} to count only verbs; `not_applicable` = nodes where the feature does not apply) or search_comparative. Complex questions: chain tools (search, then context, then summarize).
 - Vocabulary: get_lexeme_info / get_vocabulary. Edges: list_edge_features, then get_edge_features. Data model: list_corpora, list_books, get_schema, list_features.
 
 Base answers only on tool results. Quote the Hebrew/Greek text and the feature values (clause types, etc.) exactly as returned. If a search returns nothing, an error, or data for the wrong passage, say so and retry with a corrected call; never fill the gap from memory.

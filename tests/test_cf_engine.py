@@ -11,6 +11,7 @@ import pytest
 from context_fabric_mcp.books import UnknownBookError
 from context_fabric_mcp.cf_engine import (
     CFEngine,
+    QueryError,
     TemplateError,
     check_template,
     scope_template,
@@ -689,3 +690,102 @@ class TestResultObjects:
     def test_unknown_object_type_error_lists_valid_types(self, engine: CFEngine):
         with pytest.raises(TemplateError, match="Valid object types:.*\\bw\\b"):
             engine.search_constructions("word cls=verb", "greek")
+
+
+class TestCompareDistribution:
+    """Counts come straight from the corpus: exact, and not capped at 10,000."""
+
+    def test_exact_verb_tenses_match_an_independent_count(self, engine: CFEngine):
+        words = engine.search_words("hebrew", "GEN", None, {"sp": "verb"}, limit=100000)
+        expected = {}
+        for w in words:
+            tense = w["word"]["verbal_tense"]
+            expected[tense] = expected.get(tense, 0) + 1
+        out = engine.compare_feature_distribution(
+            "vt", [{"book": "GEN"}], features={"sp": "verb"}
+        )["comparison"]["GEN (hebrew)"]
+        assert out["total_count"] == len(words) == 5060
+        assert {d["value"]: d["count"] for d in out["distribution"]} == expected
+        assert out["not_applicable"] == 0
+
+    def test_unfiltered_total_is_the_real_word_count(self, engine: CFEngine):
+        api = engine._ensure_loaded("hebrew")
+        out = engine.compare_feature_distribution("vt", [{"book": "GEN"}])[
+            "comparison"
+        ]["GEN (hebrew)"]
+        assert out["total_count"] == len(
+            api.L.d(api.T.nodeFromSection(("Genesis",)), otype="word")
+        )
+        assert out["total_count"] > 10000  # the old cap
+        counted = sum(d["count"] for d in out["distribution"])
+        assert counted + out["not_applicable"] == out["total_count"]
+        assert "NA" not in {d["value"] for d in out["distribution"]}
+
+    def test_percentages_and_top_n(self, engine: CFEngine):
+        out = engine.compare_feature_distribution(
+            "vt", [{"book": "GEN"}], top_n=2, features={"sp": "verb"}
+        )["comparison"]["GEN (hebrew)"]
+        assert len(out["distribution"]) == 2
+        assert out["distribution"][0]["percent"] == round(100 * 2106 / 5060, 1)
+        assert out["distinct_values"] > 2
+
+    def test_chapter_section_and_labels(self, engine: CFEngine):
+        r = engine.compare_feature_distribution(
+            "vs", [{"book": "Psalms", "chapter": 23}, {"book": "ISA"}],
+            features={"sp": "verb"},
+        )["comparison"]
+        assert set(r) == {"PSA 23 (hebrew)", "ISA (hebrew)"}
+        assert r["PSA 23 (hebrew)"]["total_count"] < r["ISA (hebrew)"]["total_count"]
+
+    def test_greek_default_node_type_maps_to_w(self, engine: CFEngine):
+        out = engine.compare_feature_distribution(
+            "tense", [{"book": "ROM", "chapter": 8, "corpus": "greek"}],
+            features={"cls": "verb"},
+        )["comparison"]["ROM 8 (greek)"]
+        assert out["node_type"] == "w"
+        assert {d["value"]: d["count"] for d in out["distribution"]}["aorist"] == 30
+
+    def test_agrees_with_search_advanced_count(self, engine: CFEngine):
+        by_count = engine.search_advanced(
+            "w cls=verb tense=aorist", return_type="count", corpus="greek",
+            book="ROM", chapter=8,
+        )["total_count"]
+        assert by_count == 30
+
+    @pytest.mark.parametrize(
+        "kwargs, message",
+        [
+            ({"feature": "vtt"}, "Did you mean vt"),
+            ({"feature": "vt", "features": {"spp": "verb"}}, "Unknown feature 'spp'"),
+            ({"feature": "vt", "node_type": "wrd"}, "Valid object types"),
+        ],
+    )
+    def test_bad_requests_raise_query_error(self, engine: CFEngine, kwargs, message):
+        with pytest.raises(QueryError, match=message):
+            engine.compare_feature_distribution(sections=[{"book": "GEN"}], **kwargs)
+
+    def test_missing_chapter_raises(self, engine: CFEngine):
+        with pytest.raises(QueryError, match="not found"):
+            engine.compare_feature_distribution(
+                "vt", [{"book": "GEN", "chapter": 999}]
+            )
+
+
+class TestSearchAdvancedFlags:
+    def test_count_says_it_returns_no_items(self, engine: CFEngine):
+        out = engine.search_advanced(
+            "word sp=verb", return_type="count", corpus="hebrew", book="GEN"
+        )
+        assert out["total_count"] == 5060
+        assert "no items are returned" in out["note"]
+        assert "capped" not in out
+
+    def test_capped_count_is_flagged(self, engine: CFEngine):
+        out = engine.search_advanced("word", return_type="count", corpus="hebrew", book="GEN")
+        assert out["total_count"] == 10000
+        assert out["capped"] is True
+        assert "not a complete count" in out["note"]
+
+    def test_results_are_not_annotated(self, engine: CFEngine):
+        out = engine.search_advanced("clause", corpus="hebrew", book="PSA", chapter=23)
+        assert "note" not in out and "capped" not in out
