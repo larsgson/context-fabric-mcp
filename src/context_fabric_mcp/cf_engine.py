@@ -16,6 +16,13 @@ from typing import Any
 import cfabric
 from cfabric.core.api import Api
 
+from context_fabric_mcp.books import (
+    book_fields,
+    get_book,
+    book_name,
+    section_name,
+    template_name,
+)
 from context_fabric_mcp.models import (
     BookInfo,
     FeatureInfo,
@@ -219,9 +226,11 @@ class CFEngine:
         api = self._ensure_loaded(corpus)
         books = []
         for book_node in api.F.otype.s("book"):
-            book_name = api.T.sectionFromNode(book_node)[0]
+            code = get_book(api.T.sectionFromNode(book_node)[0]).code
             chapter_nodes = api.L.d(book_node, otype="chapter")
-            books.append(BookInfo(name=book_name, chapters=len(chapter_nodes)))
+            books.append(
+                BookInfo(code=code, name=book_name(code), chapters=len(chapter_nodes))
+            )
         return books
 
     def get_passage(
@@ -240,6 +249,8 @@ class CFEngine:
             verse_end = verse_start
 
         wtype = WORD_TYPE.get(corpus, "word")
+        fields = book_fields(book)
+        book = section_name(book, corpus)
 
         verses: list[VerseResult] = []
         for verse_num in range(verse_start, verse_end + 1):
@@ -254,7 +265,7 @@ class CFEngine:
 
             verses.append(
                 VerseResult(
-                    book=book,
+                    **fields,
                     chapter=chapter,
                     verse=verse_num,
                     words=words,
@@ -310,6 +321,9 @@ class CFEngine:
 
         constraint_str = "\n".join(constraints)
 
+        if book:
+            book = template_name(book, corpus)
+
         if book and chapter:
             template = (
                 f"book book={book}\n"
@@ -331,7 +345,7 @@ class CFEngine:
             info = self._word_info(api, w, feat_map)
             output.append(
                 {
-                    "book": section[0],
+                    **book_fields(section[0]),
                     "chapter": section[1],
                     "verse": section[2],
                     "word": info.model_dump(),
@@ -353,9 +367,10 @@ class CFEngine:
 
         wtype = WORD_TYPE.get(corpus, "word")
 
-        verse_node = api.T.nodeFromSection((book, chapter, verse))
+        code = get_book(book).code
+        verse_node = api.T.nodeFromSection((section_name(book, corpus), chapter, verse))
         if verse_node is None:
-            return {"error": f"Verse not found: {book} {chapter}:{verse}"}
+            return {"error": f"Verse not found: {code} {chapter}:{verse}"}
 
         word_nodes = api.L.d(verse_node, otype=wtype)
         if word_index >= len(word_nodes):
@@ -414,7 +429,11 @@ class CFEngine:
                 section = api.T.sectionFromNode(node)
                 obj: dict[str, Any] = {
                     "type": otype,
-                    "book": section[0] if len(section) > 0 else "",
+                    **(
+                        book_fields(section[0])
+                        if len(section) > 0
+                        else {"book": "", "book_name": ""}
+                    ),
                     "chapter": section[1] if len(section) > 1 else 0,
                     "verse": section[2] if len(section) > 2 else 0,
                     "text": api.T.text(node),
@@ -486,7 +505,7 @@ class CFEngine:
             section = api.T.sectionFromNode(w)
             matches.append(
                 {
-                    "book": section[0],
+                    **book_fields(section[0]),
                     "chapter": section[1],
                     "verse": section[2],
                     "word": self._word_info(api, w, feat_map).model_dump(),
@@ -518,6 +537,7 @@ class CFEngine:
             verse_end = verse_start
 
         wtype = WORD_TYPE.get(corpus, "word")
+        book = section_name(book, corpus)
         lexemes: dict[str, dict] = {}
 
         for v in range(verse_start, verse_end + 1):
@@ -785,7 +805,11 @@ class CFEngine:
                 "type": otype,
                 "text": api.T.text(target_node),
                 "section": {
-                    "book": section[0] if len(section) > 0 else "",
+                    **(
+                        book_fields(section[0])
+                        if len(section) > 0
+                        else {"book": "", "book_name": ""}
+                    ),
                     "chapter": section[1] if len(section) > 1 else 0,
                     "verse": section[2] if len(section) > 2 else 0,
                 },
@@ -824,13 +848,12 @@ class CFEngine:
             corpus = sec.get("corpus", "hebrew")
             book = sec["book"]
             chapter = sec.get("chapter")
+            native_book = template_name(book, corpus)
 
             if chapter:
-                template = (
-                    f"book book={book}\n  chapter chapter={chapter}\n    {node_type}\n"
-                )
+                template = f"book book={native_book}\n  chapter chapter={chapter}\n    {node_type}\n"
             else:
-                template = f"book book={book}\n  {node_type}\n"
+                template = f"book book={native_book}\n  {node_type}\n"
 
             self._ensure_loaded(corpus)
             stats = cf_search(
@@ -841,7 +864,9 @@ class CFEngine:
                 corpus=corpus,
             )
 
-            label = f"{book}" + (f" {chapter}" if chapter else "") + f" ({corpus})"
+            label = f"{get_book(book).code}" + (
+                f" {chapter}" if chapter else ""
+            ) + f" ({corpus})"
             results[label] = stats
 
         return {"feature": feature, "comparison": results}

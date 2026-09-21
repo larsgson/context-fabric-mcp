@@ -5,7 +5,9 @@ from __future__ import annotations
 import uuid
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from context_fabric_mcp.books import resolve_book
 
 
 class FeatureVisibility(str, Enum):
@@ -32,11 +34,16 @@ class QuizDefinition(BaseModel):
     corpus: str = "hebrew"
 
     # Passage scope
-    book: str = "Genesis"
+    book: str = "GEN"  # USFM code; English/Latin names are normalised on input
     chapter_start: int = 1
     chapter_end: int = 1
     verse_start: int | None = None  # None = entire chapter(s)
     verse_end: int | None = None
+
+    @field_validator("book")
+    @classmethod
+    def _normalise_book(cls, v: str) -> str:
+        return resolve_book(v)
 
     # What to quiz on — Text-Fabric search template
     # e.g. "word sp=verb" to find all verbs
@@ -61,7 +68,8 @@ class QuizQuestion(BaseModel):
     """A single generated quiz question."""
 
     index: int
-    book: str
+    book: str  # USFM code
+    book_name: str = ""  # display name (English for now)
     chapter: int
     verse: int
     word_text: str

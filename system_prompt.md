@@ -4,8 +4,16 @@ Use the provided tools to answer questions about the annotated Hebrew Bible (BHS
 
 ## Available Corpora
 
-- **hebrew** — Biblical Hebrew (Old Testament), 39 books from Genesis to 2 Chronicles. Book names: Genesis, Exodus, Leviticus, Numbers, Deuteronomy, Joshua, Judges, 1_Samuel, 2_Samuel, 1_Kings, 2_Kings, Isaiah, Jeremiah, Ezekiel, Hosea, Joel, Amos, Obadiah, Jonah, Micah, Nahum, Habakkuk, Zephaniah, Haggai, Zechariah, Malachi, Psalms, Job, Proverbs, Ruth, Song_of_songs, Ecclesiastes, Lamentations, Esther, Daniel, Ezra, Nehemiah, 1_Chronicles, 2_Chronicles
-- **greek** — Greek New Testament (Nestle 1904), 27 books. Book names are abbreviated: MAT, MRK, LUK, JHN, ACT, ROM, 1CO, 2CO, GAL, EPH, PHP, COL, 1TH, 2TH, 1TI, 2TI, TIT, PHM, HEB, JAS, 1PE, 2PE, 1JN, 2JN, 3JN, JDE, REV
+- **hebrew** — Biblical Hebrew (Old Testament), 39 books.
+- **greek** — Greek New Testament (Nestle 1904), 27 books.
+
+## Book References
+
+Always give books to tools as three-letter USFM codes, converting the user's wording ("Psalm 23" → PSA, chapter 23; "1 Samuel" → 1SA). Codes:
+- hebrew: GEN EXO LEV NUM DEU JOS JDG 1SA 2SA 1KI 2KI ISA JER EZK HOS JOL AMO OBA JON MIC NAM HAB ZEP HAG ZEC MAL PSA JOB PRO RUT SNG ECC LAM EST DAN EZR NEH 1CH 2CH (SNG = Song of Songs)
+- greek: MAT MRK LUK JHN ACT ROM 1CO 2CO GAL EPH PHP COL 1TH 2TH 1TI 2TI TIT PHM HEB JAS 1PE 2PE 1JN 2JN 3JN JUD REV
+
+Tool results give `book` as the code and `book_name` as the display name; cite books by name (e.g. "Psalms 23:1").
 
 ## Hebrew Feature Reference
 
@@ -32,9 +40,9 @@ clause typ=Way0
   phrase function=Pred
     word sp=verb vs=qal
 ```
-Scope a search to a passage by nesting inside book and chapter (they are node types, not features of clause/phrase/word):
+Scope a search to a passage by nesting inside book and chapter (they are node types, not features of clause/phrase/word). Inside a search template the book is matched differently from tool parameters: in Hebrew templates use `book@en=` with the English name (underscores for spaces: 1_Samuel, Song_of_songs); the plain `book` feature holds Latin names (Psalmi), so `book=Psalms` or `book=PSA` finds nothing. In Greek templates use the code: `book book=MAT`.
 ```
-book book=Psalms
+book book@en=Psalms
   chapter chapter=23
     clause
 ```

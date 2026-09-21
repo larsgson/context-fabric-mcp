@@ -46,8 +46,8 @@ A working client application that uses this server as its backend is available a
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/corpora` | List available corpora |
-| GET | `/api/books?corpus=hebrew` | List books with chapter counts |
-| GET | `/api/passage?book=Genesis&chapter=1&verse_start=1` | Get annotated text |
+| GET | `/api/books?corpus=hebrew` | List books (`code`, `name`, chapter count) |
+| GET | `/api/passage?book=GEN&chapter=1&verse_start=1` | Get annotated text |
 | GET | `/api/schema?corpus=hebrew` | Corpus object types and features |
 | POST | `/api/search/words` | Search by morphological features |
 | POST | `/api/search/constructions` | Structural pattern matching |
@@ -61,12 +61,20 @@ A working client application that uses this server as its backend is available a
 | GET | `/api/edges/{feature}?node=1` | Get edges from/to a node |
 | POST | `/api/compare/distribution` | Compare feature distributions across sections |
 | GET | `/api/lexeme/{lexeme}` | Lexeme lookup with occurrences |
-| GET | `/api/vocabulary?book=Genesis&chapter=1` | Unique lexemes in a passage |
-| GET | `/api/context?book=Genesis&chapter=1&verse=1` | Syntactic hierarchy for a word |
+| GET | `/api/vocabulary?book=GEN&chapter=1` | Unique lexemes in a passage |
+| GET | `/api/context?book=GEN&chapter=1&verse=1` | Syntactic hierarchy for a word |
 | POST | `/api/chat` | LLM-powered biblical analysis |
 | POST | `/api/chat-quiz` | AI-assisted quiz builder |
 | GET/POST | `/api/quizzes` | Quiz CRUD |
 | POST | `/api/quizzes/{id}/generate` | Generate a quiz session |
+
+### Book identifiers
+
+Books are identified by their three-letter [USFM](https://ubsicap.github.io/usfm/identification/books.html) code (`GEN`, `PSA`, `1SA`, `MAT`, ...) in both corpora. Responses return `book` (the code) and `book_name` (the display name, English for now).
+
+On input, the `book` parameter also accepts English names (`Psalms`, `1 Samuel`) and the Latin names used by BHSA (`Psalmi`), case-insensitively. An unknown book returns `404` with a suggestion. The mapping lives in `src/context_fabric_mcp/books.py`.
+
+Note that inside Text-Fabric search templates the raw `book` feature is Latin in the Hebrew corpus, so match English names there with `book@en=Psalms` (or use the tool parameters, which handle this for you).
 
 ## MCP Tools
 

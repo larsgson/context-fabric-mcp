@@ -19,7 +19,8 @@ class WordInfo(BaseModel):
 
 
 class VerseResult(BaseModel):
-    book: str
+    book: str  # USFM code
+    book_name: str = ""  # display name (English for now)
     chapter: int
     verse: int
     words: list[WordInfo]
@@ -31,7 +32,8 @@ class PassageResult(BaseModel):
 
 
 class BookInfo(BaseModel):
-    name: str
+    code: str  # USFM code, the identifier to pass back to the API
+    name: str  # display name (English for now)
     chapters: int
 
 

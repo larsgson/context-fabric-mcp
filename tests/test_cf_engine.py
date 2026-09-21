@@ -6,6 +6,7 @@ TF-format data for BHSA and Nestle 1904).
 
 import pytest
 
+from context_fabric_mcp.books import UnknownBookError
 from context_fabric_mcp.cf_engine import CFEngine
 
 
@@ -33,6 +34,7 @@ class TestHebrewBooks:
         books = engine.list_books("hebrew")
         assert len(books) == 39
         genesis = books[0]
+        assert genesis.code == "GEN"
         assert genesis.name == "Genesis"
         assert genesis.chapters == 50
 
@@ -49,7 +51,8 @@ class TestHebrewPassage:
         assert result.corpus == "hebrew"
         assert len(result.verses) == 1
         verse = result.verses[0]
-        assert verse.book == "Genesis"
+        assert verse.book == "GEN"
+        assert verse.book_name == "Genesis"
         assert verse.chapter == 1
         assert verse.verse == 1
         assert len(verse.words) > 0
@@ -96,7 +99,7 @@ class TestHebrewSearch:
         )
         assert len(results) > 0
         for r in results:
-            assert r["book"] == "Genesis"
+            assert r["book"] == "GEN"
             assert r["chapter"] == 1
             assert r["word"]["part_of_speech"] == "verb"
 
@@ -176,7 +179,7 @@ class TestLexemeInfo:
         # Genesis 1:1 should be among the occurrences (order may vary by engine)
         books = [o["book"] for o in result["occurrences"]]
         assert (
-            any(o["book"] == "Genesis" for o in result["occurrences"]) or len(books) > 0
+            any(o["book"] == "GEN" for o in result["occurrences"]) or len(books) > 0
         )
 
     def test_common_verb(self, engine: CFEngine):
@@ -208,7 +211,8 @@ class TestGreekBooks:
         books = engine.list_books("greek")
         assert len(books) == 27
         first = books[0]
-        assert first.name == "MAT"
+        assert first.code == "MAT"
+        assert first.name == "Matthew"
         assert first.chapters == 28
 
 
@@ -263,3 +267,55 @@ class TestGreekLexeme:
         assert result["total_occurrences"] > 0
         assert len(result["occurrences"]) > 0
         assert result["part_of_speech"] == "noun"
+
+
+class TestBookAliases:
+    """Books are accepted as USFM codes, English or Latin names.
+
+    Regression: the BHSA `book` feature is Latin (Psalmi), so search templates
+    built from English names (Psalms) used to silently match nothing.
+    """
+
+    @pytest.mark.parametrize("book", ["PSA", "Psalms", "Psalmi", "psalm"])
+    def test_get_passage(self, engine: CFEngine, book: str):
+        result = engine.get_passage(book, 23, 1, 1, "hebrew")
+        assert len(result.verses) == 1
+        assert result.verses[0].words
+
+    @pytest.mark.parametrize("book", ["PSA", "Psalms", "Psalmi"])
+    def test_search_words_scoped_to_book_with_latin_name(
+        self, engine: CFEngine, book: str
+    ):
+        results = engine.search_words(
+            "hebrew", book, 23, {"sp": "verb"}, limit=200
+        )
+        assert len(results) > 0
+        assert all(r["book"] == "PSA" and r["chapter"] == 23 for r in results)
+
+    def test_search_words_whole_book(self, engine: CFEngine):
+        assert engine.search_words("hebrew", "DEU", None, {"vs": "hif"}, limit=5)
+
+    def test_get_context_and_vocabulary(self, engine: CFEngine):
+        assert "error" not in engine.get_context("PSA", 23, 1, 0, "hebrew")
+        assert engine.get_vocabulary("PSA", 23, 1, 2, "hebrew")
+
+    def test_compare_distribution_uses_latin_names(self, engine: CFEngine):
+        result = engine.compare_feature_distribution(
+            "vs",
+            [{"book": "Psalms", "corpus": "hebrew"}, {"book": "ISA", "corpus": "hebrew"}],
+        )
+        assert len(result["comparison"]) == 2
+        for stats in result["comparison"].values():
+            assert stats  # not an empty scope
+
+    def test_greek_accepts_names(self, engine: CFEngine):
+        result = engine.get_passage("Matthew", 1, 1, 1, "greek")
+        assert result.verses[0].book == "MAT"
+
+    def test_unknown_book_raises(self, engine: CFEngine):
+        with pytest.raises(UnknownBookError, match="Did you mean PSA"):
+            engine.get_passage("Psalmz", 23, 1, 1, "hebrew")
+
+    def test_book_from_other_corpus_raises(self, engine: CFEngine):
+        with pytest.raises(UnknownBookError, match="not in the greek"):
+            engine.get_passage("PSA", 23, 1, 1, "greek")

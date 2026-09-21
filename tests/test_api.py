@@ -34,6 +34,7 @@ class TestBooks:
         assert resp.status_code == 200
         books = resp.json()
         assert len(books) == 39
+        assert books[0]["code"] == "GEN"
         assert books[0]["name"] == "Genesis"
         assert books[0]["chapters"] == 50
 
@@ -63,7 +64,8 @@ class TestPassage:
         assert data["corpus"] == "hebrew"
         assert len(data["verses"]) == 1
         verse = data["verses"][0]
-        assert verse["book"] == "Genesis"
+        assert verse["book"] == "GEN"
+        assert verse["book_name"] == "Genesis"
         assert verse["chapter"] == 1
         assert verse["verse"] == 1
         # Genesis 1:1 has 11 words in Hebrew
@@ -150,7 +152,7 @@ class TestSearch:
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) > 0
-        assert data[0]["book"] == "Genesis"
+        assert data[0]["book"] == "GEN"
         assert data[0]["chapter"] == 1
         assert data[0]["word"]["part_of_speech"] == "verb"
 
@@ -335,3 +337,23 @@ class TestEdges:
         data = resp.json()
         assert data["edge_feature"] == "mother"
         assert "edges" in data
+
+
+class TestBookResolution:
+    def test_passage_accepts_code_and_latin_name(self, client):
+        for book in ("PSA", "Psalms", "Psalmi"):
+            resp = client.get(
+                "/api/passage",
+                params={"corpus": "hebrew", "book": book, "chapter": 23, "verse_start": 1},
+            )
+            assert resp.status_code == 200
+            verse = resp.json()["verses"][0]
+            assert (verse["book"], verse["book_name"]) == ("PSA", "Psalms")
+
+    def test_unknown_book_is_404_with_hint(self, client):
+        resp = client.get(
+            "/api/passage",
+            params={"corpus": "hebrew", "book": "Psalmz", "chapter": 23, "verse_start": 1},
+        )
+        assert resp.status_code == 404
+        assert "PSA" in resp.json()["detail"]

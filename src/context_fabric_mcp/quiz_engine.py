@@ -9,6 +9,11 @@ import random
 from pathlib import Path
 from typing import Any
 
+from context_fabric_mcp.books import (
+    UnknownBookError,
+    book_fields,
+    template_name,
+)
 from context_fabric_mcp.cf_engine import WORD_FEATURES, WORD_TYPE, CFEngine
 from context_fabric_mcp.quiz_models import (
     FeatureVisibility,
@@ -23,6 +28,14 @@ logger = logging.getLogger(__name__)
 QUIZ_DIR = Path(
     os.environ.get("QUIZ_DIR", Path(__file__).parent.parent.parent / "quizzes")
 )
+
+
+def _book_summary(value: str) -> dict[str, str]:
+    """Book code and display name for a stored book; tolerate unrecognised values."""
+    try:
+        return book_fields(value)
+    except UnknownBookError:
+        return {"book": value, "book_name": value}
 
 
 class QuizStore:
@@ -62,7 +75,7 @@ class QuizStore:
                         "id": data.get("id", p.stem),
                         "title": data.get("title", "Untitled"),
                         "corpus": data.get("corpus", "hebrew"),
-                        "book": data.get("book", ""),
+                        **_book_summary(data.get("book", "")),
                     }
                 )
             except (json.JSONDecodeError, KeyError):
@@ -100,22 +113,23 @@ def generate_session(
     wtype = WORD_TYPE.get(quiz.corpus, "word")
 
     # Build the scoped search template
+    book = template_name(quiz.book, quiz.corpus)
     scope_lines = []
     if quiz.verse_start is not None and quiz.verse_end is not None:
         # Verse-level scope — search within chapter, filter by verse after
-        scope_lines.append(f"book book={quiz.book}")
+        scope_lines.append(f"book book={book}")
         scope_lines.append(f"  chapter chapter={quiz.chapter_start}")
         # Indent the user template under chapter
         for line in quiz.search_template.strip().splitlines():
             scope_lines.append(f"    {line}")
     elif quiz.chapter_start == quiz.chapter_end:
-        scope_lines.append(f"book book={quiz.book}")
+        scope_lines.append(f"book book={book}")
         scope_lines.append(f"  chapter chapter={quiz.chapter_start}")
         for line in quiz.search_template.strip().splitlines():
             scope_lines.append(f"    {line}")
     else:
         # Multi-chapter — just scope to book, filter chapters after
-        scope_lines.append(f"book book={quiz.book}")
+        scope_lines.append(f"book book={book}")
         for line in quiz.search_template.strip().splitlines():
             scope_lines.append(f"  {line}")
 
@@ -154,7 +168,7 @@ def generate_session(
         if len(section) < 3:
             continue
 
-        book_name, ch, vs = section
+        section_book, ch, vs = section
 
         # Filter by verse range if specified
         if quiz.verse_start is not None and vs < quiz.verse_start:
@@ -191,7 +205,7 @@ def generate_session(
         questions.append(
             QuizQuestion(
                 index=len(questions),
-                book=book_name,
+                **book_fields(section_book),
                 chapter=ch,
                 verse=vs,
                 word_text=word_info.text,

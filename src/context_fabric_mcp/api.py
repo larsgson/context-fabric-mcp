@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from context_fabric_mcp.books import UnknownBookError
 from context_fabric_mcp.cf_engine import CFEngine
 from context_fabric_mcp.quiz_engine import QuizStore, generate_session
 from context_fabric_mcp.quiz_models import QuizDefinition
@@ -30,6 +31,11 @@ app = FastAPI(
 API_KEY = os.getenv("API_KEY")
 if not API_KEY:
     logger.warning("API_KEY not set. All requests will be allowed.")
+
+
+@app.exception_handler(UnknownBookError)
+async def unknown_book_handler(request: Request, exc: UnknownBookError):
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
 
 
 @app.middleware("http")

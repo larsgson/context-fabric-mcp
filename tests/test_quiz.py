@@ -120,7 +120,7 @@ class TestQuizGeneration:
         assert session.quiz_title == "Genesis 1 Verbs"
         assert len(session.questions) == 5
         for q in session.questions:
-            assert q.book == "Genesis"
+            assert q.book == "GEN"
             assert q.chapter == 1
             assert q.word_text != ""
             assert "gloss" in q.shown_features
@@ -147,6 +147,25 @@ class TestQuizGeneration:
         for q in session.questions:
             assert 1 <= q.verse <= 3
 
+    def test_generate_quiz_for_book_with_latin_name(self, engine):
+        """Psalms is Psalmi in the BHSA `book` feature; scoping must handle it."""
+        quiz = QuizDefinition(
+            corpus="hebrew",
+            book="PSA",
+            chapter_start=23,
+            chapter_end=23,
+            search_template="word sp=verb",
+            features=[
+                FeatureConfig(name="gloss", visibility=FeatureVisibility.show),
+                FeatureConfig(name="verbal_stem", visibility=FeatureVisibility.request),
+            ],
+            max_questions=0,
+            randomize=False,
+        )
+        session = generate_session(quiz, engine)
+        assert len(session.questions) > 0
+        assert all(q.chapter == 23 for q in session.questions)
+
     def test_generate_greek_quiz(self, engine):
         quiz = QuizDefinition(
             corpus="greek",
@@ -165,6 +184,32 @@ class TestQuizGeneration:
         session = generate_session(quiz, engine)
         assert len(session.questions) <= 3
         assert len(session.questions) > 0
+
+
+class TestQuizBookNormalisation:
+    def test_names_normalise_to_codes(self):
+        assert QuizDefinition(book="Genesis").book == "GEN"
+        assert QuizDefinition(book="Psalmi").book == "PSA"
+        assert QuizDefinition().book == "GEN"
+
+    def test_unknown_book_rejected(self):
+        with pytest.raises(ValueError):
+            QuizDefinition(book="Atlantis")
+
+    def test_questions_carry_code_and_name(self, engine):
+        quiz = QuizDefinition(
+            corpus="hebrew",
+            book="Psalms",
+            chapter_start=23,
+            chapter_end=23,
+            search_template="word sp=verb",
+            features=[
+                FeatureConfig(name="verbal_stem", visibility=FeatureVisibility.request),
+            ],
+            max_questions=1,
+        )
+        q = generate_session(quiz, engine).questions[0]
+        assert (q.book, q.book_name) == ("PSA", "Psalms")
 
 
 # --- API tests ---
