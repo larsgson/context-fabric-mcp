@@ -185,9 +185,16 @@ _EXPLORATION_TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "template": {"type": "string", "description": "Search template"},
+                "template": {
+                    "type": "string",
+                    "description": "Search pattern only, no book/chapter lines",
+                },
                 "corpus": {"type": "string"},
                 "limit": {"type": "integer", "description": "Max results"},
+                "book": {"type": "string", "description": "Book code, e.g. PSA"},
+                "chapter": {"type": "integer"},
+                "verse_start": {"type": "integer"},
+                "verse_end": {"type": "integer"},
             },
             "required": ["template"],
         },
@@ -314,6 +321,10 @@ _EXPLORATION_TOOL_SPECS = [
                     "description": "Page size for results/passages",
                 },
                 "corpus": {"type": "string"},
+                "book": {"type": "string", "description": "Book code, e.g. PSA"},
+                "chapter": {"type": "integer"},
+                "verse_start": {"type": "integer"},
+                "verse_end": {"type": "integer"},
             },
             "required": ["template"],
         },
@@ -495,6 +506,10 @@ def _execute_tool(engine: CFEngine, name: str, args: dict[str, Any]) -> Any:
             template=args["template"],
             corpus=args.get("corpus", "hebrew"),
             limit=args.get("limit", 50),
+            book=args.get("book"),
+            chapter=args.get("chapter"),
+            verse_start=args.get("verse_start"),
+            verse_end=args.get("verse_end"),
         )
     elif name == "get_lexeme_info":
         return engine.get_lexeme_info(
@@ -541,6 +556,10 @@ def _execute_tool(engine: CFEngine, name: str, args: dict[str, Any]) -> Any:
             top_n=args.get("top_n", 50),
             limit=args.get("limit", 100),
             corpus=args.get("corpus", "hebrew"),
+            book=args.get("book"),
+            chapter=args.get("chapter"),
+            verse_start=args.get("verse_start"),
+            verse_end=args.get("verse_end"),
         )
     elif name == "search_comparative":
         return engine.search_comparative(

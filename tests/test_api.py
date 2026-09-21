@@ -367,3 +367,33 @@ class TestTemplateErrors:
         )
         assert resp.status_code == 400
         assert "object type" in resp.json()["detail"]
+
+
+class TestScopedSearch:
+    def test_constructions_with_scope_parameters(self, client):
+        resp = client.post(
+            "/api/search/constructions",
+            json={"template": "clause", "book": "PSA", "chapter": 23},
+        )
+        assert resp.status_code == 200
+        clauses = [
+            o for r in resp.json() for o in r["objects"] if o["type"] == "clause"
+        ]
+        assert len(clauses) == 17
+        assert {c["chapter"] for c in clauses} == {23}
+
+    def test_advanced_with_scope_parameters(self, client):
+        resp = client.post(
+            "/api/search/advanced",
+            json={"template": "clause", "return_type": "count", "book": "Psalms", "chapter": 23},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["total_count"] == 17
+
+    def test_scope_conflict_is_400(self, client):
+        resp = client.post(
+            "/api/search/constructions",
+            json={"template": "book book=PSA\n  clause", "book": "PSA", "chapter": 23},
+        )
+        assert resp.status_code == 400
+        assert "repeats the scope" in resp.json()["detail"]

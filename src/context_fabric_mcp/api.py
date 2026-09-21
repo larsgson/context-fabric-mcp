@@ -77,6 +77,10 @@ class ConstructionSearchRequest(BaseModel):
     template: str
     corpus: str = "hebrew"
     limit: int = 50
+    book: str | None = None
+    chapter: int | None = None
+    verse_start: int | None = None
+    verse_end: int | None = None
 
 
 class AdvancedSearchRequest(BaseModel):
@@ -87,6 +91,10 @@ class AdvancedSearchRequest(BaseModel):
     top_n: int = 50
     limit: int = 100
     corpus: str = "hebrew"
+    book: str | None = None
+    chapter: int | None = None
+    verse_start: int | None = None
+    verse_end: int | None = None
 
 
 class SearchContinueRequest(BaseModel):
@@ -169,6 +177,10 @@ def search_constructions(req: ConstructionSearchRequest):
         template=req.template,
         corpus=req.corpus,
         limit=req.limit,
+        book=req.book,
+        chapter=req.chapter,
+        verse_start=req.verse_start,
+        verse_end=req.verse_end,
     )
 
 
@@ -189,6 +201,10 @@ def search_advanced(req: AdvancedSearchRequest):
         top_n=req.top_n,
         limit=req.limit,
         corpus=req.corpus,
+        book=req.book,
+        chapter=req.chapter,
+        verse_start=req.verse_start,
+        verse_end=req.verse_end,
     )
 
 

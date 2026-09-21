@@ -7,7 +7,12 @@ TF-format data for BHSA and Nestle 1904).
 import pytest
 
 from context_fabric_mcp.books import UnknownBookError
-from context_fabric_mcp.cf_engine import CFEngine, TemplateError, check_template
+from context_fabric_mcp.cf_engine import (
+    CFEngine,
+    TemplateError,
+    check_template,
+    scope_template,
+)
 
 
 @pytest.fixture(scope="module")
@@ -387,6 +392,107 @@ class TestCheckTemplate:
     def test_valid_syntax_passes(self, template):
         check_template(template, self.TYPES)
 
+    FEATURES = ("typ", "function", "sp", "vs", "book", "book@en", "chapter", "verse")
+
+    def test_unknown_feature_flagged_with_hint(self):
+        with pytest.raises(TemplateError, match="unknown feature 'typp'.*Did you mean typ"):
+            check_template("clause typp=Way0", self.TYPES, self.FEATURES)
+
+    def test_unknown_feature_on_nested_and_operator_lines(self):
+        with pytest.raises(TemplateError, match="unknown feature 'sq'"):
+            check_template("clause\n  word sp=verb\n  < word sq=nmpr", self.TYPES, self.FEATURES)
+
+    def test_unknown_feature_with_other_operators(self):
+        for constraint in ("vss#qal", "vss~^q", "vss=qal|piel", "vss>3"):
+            with pytest.raises(TemplateError, match="unknown feature 'vss'"):
+                check_template(f"word {constraint}", self.TYPES, self.FEATURES)
+
+    @pytest.mark.parametrize(
+        "template",
+        [
+            "word sp=verb vs=qal",
+            "word sp#verb",
+            "word vs~^q",
+            "word vs=qal|piel",
+            "book book@en=Psalms",
+            "a:word sp=verb\nb:word sp=nmpr\na < b",
+            "word",  # no constraints at all
+        ],
+    )
+    def test_known_features_pass(self, template):
+        check_template(template, self.TYPES, self.FEATURES)
+
+    def test_feature_names_not_checked_when_not_given(self):
+        check_template("clause typp=Way0", self.TYPES)
+
+    def test_feature_values_are_not_checked(self):
+        check_template("word sp=verbs", self.TYPES, self.FEATURES)
+
+    def test_rejects_scope_that_contains_nothing(self):
+        """The template behind the client's Psalm 1:1 result: 1-space siblings."""
+        with pytest.raises(TemplateError, match="contains nothing.*same indent"):
+            check_template(
+                "book book=PSA\n chapter chapter=23\n clause", self.TYPES, self.FEATURES
+            )
+
+    def test_rejects_scope_sibling_deeper_in_template(self):
+        with pytest.raises(TemplateError, match="verse constraint would not apply"):
+            check_template(
+                "book book=PSA\n  chapter chapter=23\n    verse verse=1\n    clause",
+                self.TYPES,
+            )
+
+    def test_rejects_unindented_top_level_lines(self):
+        with pytest.raises(TemplateError, match="3 separate top-level lines"):
+            check_template("book book=PSA\nchapter chapter=23\nclause", self.TYPES)
+
+    @pytest.mark.parametrize(
+        "template",
+        [
+            "book book=PSA\n  chapter chapter=23\n    clause",  # correct nesting
+            "book book=PSA\n  chapter chapter=23\n    verse verse=1\n      clause",
+            "book book=PSA\n    chapter chapter=23\n        clause",  # any consistent step
+            "book book=PSA\n  chapter chapter=23\n  chapter chapter=24",  # sibling scopes
+            "book book=PSA\n  chapter chapter=23",  # scope alone: finds the chapter
+            "chapter chapter=23\n  clause typ=NmCl\n  clause typ=Way0",  # sibling patterns
+            "a:clause\nb:clause\na < b",  # top-level lines joined by a relation
+            "clause\n< clause",  # operator ties the second line to the first
+            "clause\n/without/\nword sp=verb\n/-/",  # quantifier blocks are not judged
+        ],
+    )
+    def test_valid_structure_passes(self, template):
+        check_template(template, self.TYPES, self.FEATURES)
+
+    def test_engine_rejects_the_clients_template(self, engine: CFEngine):
+        with pytest.raises(TemplateError, match="contains nothing"):
+            engine.search_constructions(
+                "book book=PSA\n chapter chapter=23\n clause", "hebrew"
+            )
+        with pytest.raises(TemplateError, match="separate top-level lines"):
+            engine.search_constructions(
+                "book book=PSA\nchapter chapter=23\nclause", "hebrew"
+            )
+
+    def test_engine_correct_nesting_is_scoped_to_the_chapter(self, engine: CFEngine):
+        results = engine.search_constructions(
+            "book book=PSA\n  chapter chapter=23\n    clause", "hebrew", limit=100
+        )
+        assert len(results) == 17
+        chapters = {
+            o["chapter"] for r in results for o in r["objects"] if o["type"] == "clause"
+        }
+        assert chapters == {23}
+
+    def test_engine_rejects_unknown_feature(self, engine: CFEngine):
+        with pytest.raises(TemplateError, match="unknown feature 'typp'"):
+            engine.search_constructions("clause typp=Way0", "hebrew")
+        with pytest.raises(TemplateError, match="unknown feature 'sq'"):
+            engine.search_advanced("word sq=verb", corpus="hebrew")
+
+    def test_engine_accepts_documented_features(self, engine: CFEngine):
+        assert engine.search_constructions("clause typ=Way0", "hebrew", limit=3)
+        assert engine.search_constructions("w cls=noun", "greek", limit=3)
+
     def test_engine_raises_instead_of_returning_empty(self, engine: CFEngine):
         with pytest.raises(TemplateError):
             engine.search_constructions(
@@ -398,3 +504,151 @@ class TestCheckTemplate:
     def test_all_existing_test_templates_still_run(self, engine: CFEngine):
         template = "book book=Genesis\n  chapter chapter=1\n    clause typ=Way0\n"
         assert engine.search_constructions(template, "hebrew", limit=5)
+
+
+class TestScopeTemplate:
+    """The pure wrapper: pattern in, scoped template out."""
+
+    TYPES = ("book", "chapter", "verse", "clause", "phrase", "word")
+
+    def wrap(self, template, book="PSA", **kw):
+        return scope_template(template, "hebrew", book, object_types=self.TYPES, **kw)
+
+    def test_book_chapter(self):
+        assert self.wrap("clause", chapter=23) == (
+            "book book=Psalmi\n  chapter chapter=23\n    clause\n"
+        )
+
+    def test_book_only(self):
+        assert self.wrap("clause typ=Way0") == "book book=Psalmi\n  clause typ=Way0\n"
+
+    def test_single_verse_and_range(self):
+        assert "verse verse=1\n" in self.wrap("clause", chapter=23, verse_start=1)
+        assert "verse verse=1|2|3\n" in self.wrap(
+            "clause", chapter=23, verse_start=1, verse_end=3
+        )
+
+    def test_verse_end_alone_starts_at_one(self):
+        assert "verse verse=1|2\n" in self.wrap("clause", chapter=23, verse_end=2)
+
+    def test_pattern_nesting_is_preserved_and_normalised(self):
+        out = self.wrap("  clause\n    phrase\n    word", chapter=23)
+        assert out == (
+            "book book=Psalmi\n  chapter chapter=23\n"
+            "    clause\n      phrase\n      word\n"
+        )
+
+    def test_greek_uses_code(self):
+        out = scope_template("w cls=noun", "greek", "Matthew", 1, object_types=("w",))
+        assert out.startswith("book book=MAT\n  chapter chapter=1\n")
+
+    def test_no_scope_returns_template_unchanged(self):
+        assert scope_template("clause", "hebrew", None) == "clause"
+
+    @pytest.mark.parametrize(
+        "kwargs, message",
+        [
+            ({"book": None, "chapter": 23}, "require book"),
+            ({"chapter": None, "verse_start": 1}, "require chapter"),
+            ({"chapter": 23, "verse_start": 5, "verse_end": 2}, "before verse_start"),
+        ],
+    )
+    def test_inconsistent_parameters_raise(self, kwargs, message):
+        args = {"book": "PSA", "chapter": 23, **kwargs}
+        with pytest.raises(TemplateError, match=message):
+            scope_template("clause", "hebrew", **args, object_types=self.TYPES)
+
+    @pytest.mark.parametrize(
+        "template, kwargs",
+        [
+            ("book book=PSA\n  clause", {}),
+            ("chapter chapter=23\n  clause", {"chapter": 23}),
+            ("verse verse=1\n  clause", {"chapter": 23, "verse_start": 1}),
+        ],
+    )
+    def test_pattern_repeating_the_scope_is_rejected(self, template, kwargs):
+        with pytest.raises(TemplateError, match="repeats the scope"):
+            self.wrap(template, **kwargs)
+
+    def test_pattern_may_use_levels_below_the_scope(self):
+        # book param only: the pattern is free to constrain chapter itself
+        assert "chapter chapter=23" in self.wrap("chapter chapter=23\n  clause")
+
+
+class TestScopeParameters:
+    def test_matches_hand_nested_template(self, engine: CFEngine):
+        by_param = engine.search_constructions("clause", "hebrew", 100, "PSA", 23)
+        by_hand = engine.search_constructions(
+            "book book=PSA\n  chapter chapter=23\n    clause", "hebrew", limit=100
+        )
+        assert len(by_param) == len(by_hand) == 17
+        assert by_param == by_hand
+
+    def test_every_result_is_inside_the_chapter(self, engine: CFEngine):
+        results = engine.search_constructions(
+            "clause", "hebrew", 100, book="Psalms", chapter=23
+        )
+        clauses = [o for r in results for o in r["objects"] if o["type"] == "clause"]
+        assert {(c["book"], c["chapter"]) for c in clauses} == {("PSA", 23)}
+
+    def test_book_only(self, engine: CFEngine):
+        results = engine.search_constructions("clause typ=Way0", "hebrew", 5, book="PSA")
+        assert results
+        assert {o["book"] for r in results for o in r["objects"] if o["type"] == "clause"} == {"PSA"}
+
+    def test_single_verse_and_range(self, engine: CFEngine):
+        one = engine.search_constructions(
+            "clause", "hebrew", 100, "PSA", 23, verse_start=1
+        )
+        assert len(one) == 3
+        assert {c["verse"] for r in one for c in r["objects"] if c["type"] == "clause"} == {1}
+        rng = engine.search_constructions(
+            "clause", "hebrew", 100, "PSA", 23, verse_start=1, verse_end=3
+        )
+        assert len(rng) == 7
+        verses = {c["verse"] for r in rng for c in r["objects"] if c["type"] == "clause"}
+        assert verses == {1, 2, 3}
+
+    def test_nested_pattern_with_scope(self, engine: CFEngine):
+        results = engine.search_constructions(
+            "clause typ=NmCl\n  phrase function=Subj", "hebrew", 20, "PSA", 23
+        )
+        assert results
+
+    def test_multiple_top_level_pattern_lines_are_connected_by_the_scope(
+        self, engine: CFEngine
+    ):
+        assert engine.search_constructions(
+            "clause typ=NmCl\nclause typ=xYq0", "hebrew", 5, "PSA", 23, verse_start=1
+        )
+
+    def test_greek(self, engine: CFEngine):
+        results = engine.search_constructions(
+            "w cls=noun", "greek", 3, book="Matthew", chapter=1
+        )
+        assert results
+        assert results[0]["objects"][-1]["book"] == "MAT"
+
+    def test_search_advanced_count(self, engine: CFEngine):
+        result = engine.search_advanced(
+            "clause", return_type="count", corpus="hebrew", book="PSA", chapter=23
+        )
+        assert result["total_count"] == 17
+
+    def test_pattern_is_still_validated(self, engine: CFEngine):
+        with pytest.raises(TemplateError, match="unknown feature 'typp'"):
+            engine.search_constructions("clause typp=Way0", "hebrew", 5, "PSA", 23)
+        with pytest.raises(TemplateError, match="does not start with an object type"):
+            engine.search_constructions("typ=Way0", "hebrew", 5, "PSA", 23)
+
+    def test_errors(self, engine: CFEngine):
+        with pytest.raises(TemplateError, match="repeats the scope"):
+            engine.search_constructions(
+                "book book=PSA\n  clause", "hebrew", 5, "PSA", 23
+            )
+        with pytest.raises(TemplateError, match="require book"):
+            engine.search_constructions("clause", "hebrew", 5, chapter=23)
+        with pytest.raises(UnknownBookError, match="Did you mean PSA"):
+            engine.search_constructions("clause", "hebrew", 5, book="Psalmz")
+        with pytest.raises(UnknownBookError, match="not in the greek"):
+            engine.search_constructions("w", "greek", 5, book="PSA")

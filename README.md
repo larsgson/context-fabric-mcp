@@ -50,9 +50,9 @@ A working client application that uses this server as its backend is available a
 | GET | `/api/passage?book=GEN&chapter=1&verse_start=1` | Get annotated text |
 | GET | `/api/schema?corpus=hebrew` | Corpus object types and features |
 | POST | `/api/search/words` | Search by morphological features |
-| POST | `/api/search/constructions` | Structural pattern matching |
+| POST | `/api/search/constructions` | Structural pattern matching (optional `book`, `chapter`, `verse_start`, `verse_end` scope) |
 | GET | `/api/search/syntax-guide` | Search template syntax documentation |
-| POST | `/api/search/advanced` | Search with statistics, count, or passage grouping |
+| POST | `/api/search/advanced` | Search with statistics, count, or passage grouping (same optional scope) |
 | POST | `/api/search/continue` | Cursor-based pagination for search results |
 | POST | `/api/search/comparative` | Cross-corpus search (Hebrew + Greek) |
 | GET | `/api/features?node_types=word` | List features with optional filtering |
@@ -74,7 +74,9 @@ Books are identified by their three-letter [USFM](https://ubsicap.github.io/usfm
 
 On input, the `book` parameter also accepts English names (`Psalms`, `1 Samuel`) and the Latin names used by BHSA (`Psalmi`), case-insensitively. An unknown book returns `404` with a suggestion. The mapping lives in `src/context_fabric_mcp/books.py`.
 
-In search templates, a plain `book=<name>` on a book, chapter or verse line is rewritten to the corpus's own form (the raw Hebrew `book` feature is Latin), so `book=PSA`, `book=Psalms` and `book=Psalmi` all work. More complex constraints (alternation, negation, regex, `book@en=`) are passed through untouched.
+To search within a passage, pass `book` (and optionally `chapter`, `verse_start`, `verse_end`) to `/api/search/constructions` or `/api/search/advanced` and send only the pattern as `template`; the server nests it inside the scope. A template that repeats the scope returns `400`.
+
+If you write the scope by hand instead, a plain `book=<name>` on a book, chapter or verse line is rewritten to the corpus's own form (the raw Hebrew `book` feature is Latin), so `book=PSA`, `book=Psalms` and `book=Psalmi` all work. More complex constraints (alternation, negation, regex, `book@en=`) are passed through untouched.
 
 ## MCP Tools
 

@@ -11,9 +11,10 @@ import difflib
 import logging
 import os
 import re
+import textwrap
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import cfabric
 from cfabric.core.api import Api
@@ -103,21 +104,144 @@ class TemplateError(ValueError):
 
 
 _FEATURE_TOKEN_RE = re.compile(r"^\w[\w@]*[=#~]")
+# The feature name of a constraint token: name=value, name#value, name~regex,
+# name<3, name>3.
+_FEATURE_NAME_RE = re.compile(r"^([A-Za-z_][\w@]*)[=#~<>]")
 
 
-def check_template(template: str, object_types: Any) -> None:
-    """Reject template lines that do not start with a known object type.
+def _check_feature_names(
+    number: int, line: str, constraints: list[str], feature_names: set[str]
+) -> None:
+    for token in constraints:
+        m = _FEATURE_NAME_RE.match(token)
+        if not m or m.group(1) in feature_names:
+            continue
+        name = m.group(1)
+        close = difflib.get_close_matches(name, feature_names, n=3)
+        hint = f" Did you mean {', '.join(close)}?" if close else ""
+        raise TemplateError(
+            f"Template line {number}: unknown feature {name!r} in "
+            f"{line.strip()!r}.{hint} Use list_features or describe_feature to "
+            f"see the valid feature names."
+        )
 
-    Deliberately narrow: only a first token that is not an object type *and*
-    looks like a feature constraint (``book@en=Psalms``) or is followed by one
-    (``clse typ=Way0``) is flagged. Relation lines, named atoms, comments and
-    quantifier lines pass through.
+
+_SCOPE_TYPES = ("book", "chapter", "verse")
+
+
+class _TemplateLine(NamedTuple):
+    number: int
+    indent: int
+    text: str
+    otype: str | None  # None for relation lines such as "a < b"
+    leading_operator: bool  # e.g. "< word sp=verb"
+    constraints: list[str]
+
+
+def _template_lines(template: str, types: set[str]) -> list[_TemplateLine] | None:
+    """Parse a template into lines; None if it uses quantifier blocks."""
+    lines = []
+    for number, line in enumerate(template.splitlines()):
+        tokens = line.split()
+        if not tokens or tokens[0][0] == "%":
+            continue
+        if tokens[0][0] in "/\\":
+            return None  # quantifier blocks have their own layout rules
+        body = list(tokens)
+        while body and not (body[0][0].isalnum() or body[0][0] == "_"):
+            body.pop(0)
+        otype = body[0].split(":", 1)[-1] if body else None
+        if otype not in types:
+            otype = None
+        lines.append(
+            _TemplateLine(
+                number,
+                len(line) - len(line.lstrip()),
+                line.strip(),
+                otype,
+                len(body) < len(tokens),
+                body[1:] if otype else [],
+            )
+        )
+    return lines
+
+
+def _check_structure(template: str, types: set[str]) -> None:
+    """Reject nesting mistakes that make Text-Fabric ignore or reject a scope."""
+    lines = _template_lines(template, types)
+    if not lines:
+        return
+    nodes = [ln for ln in lines if ln.otype]
+    is_relation = any(ln.otype is None for ln in lines)
+
+    # Top-level nodes with nothing connecting them: Text-Fabric refuses the
+    # query ("More than one connected components") and the caller sees no results.
+    top = [ln for ln in nodes if ln.indent == min(n.indent for n in nodes)] if nodes else []
+    if len(top) > 1 and not is_relation and not any(ln.leading_operator for ln in top):
+        where = ", ".join(f"line {ln.number}: {ln.text!r}" for ln in top)
+        raise TemplateError(
+            f"Template has {len(top)} separate top-level lines ({where}) with "
+            f"nothing connecting them; lines at the same indent are siblings, "
+            f"not nested. Indent each line that belongs inside another by 2 more "
+            f"spaces than its parent, e.g. 'book book=PSA' / '  chapter "
+            f"chapter=23' / '    clause'."
+        )
+
+    # A book/chapter/verse constraint that contains nothing while a pattern
+    # line follows at the same indent: the constraint is a sibling, so it does
+    # not scope the pattern and results come from the whole enclosing node.
+    for i, ln in enumerate(lines):
+        if ln.otype not in _SCOPE_TYPES or not any(
+            _FEATURE_TOKEN_RE.match(c) for c in ln.constraints
+        ):
+            continue
+        if i + 1 < len(lines) and lines[i + 1].indent > ln.indent:
+            continue  # it has children
+        for later in lines[i + 1 :]:
+            if later.indent < ln.indent:
+                break
+            if (
+                later.indent == ln.indent
+                and later.otype
+                and later.otype not in _SCOPE_TYPES
+            ):
+                raise TemplateError(
+                    f"Template line {ln.number}: {ln.text!r} contains nothing, "
+                    f"because the next pattern line ({later.text!r}) has the same "
+                    f"indent, so it is a sibling, not inside it; the "
+                    f"{ln.otype} constraint would not apply. Indent the lines "
+                    f"that belong inside by 2 more spaces than their parent."
+                )
+
+
+def check_template(
+    template: str,
+    object_types: Any,
+    feature_names: Any = None,
+    structure: bool = True,
+) -> None:
+    """Reject template lines that would silently match nothing.
+
+    Deliberately narrow. A line is flagged when its first token is not an
+    object type *and* looks like a feature constraint (``book@en=Psalms``) or
+    is followed by one (``clse typ=Way0``). If ``feature_names`` is given, a
+    plain constraint on a node line whose feature does not exist
+    (``clause typp=Way0``) is flagged too; feature *values* are not checked.
+    Relation lines, named atoms, comments and quantifier lines pass through.
     """
     types = set(object_types)
+    features = set(feature_names) if feature_names is not None else None
     for number, line in enumerate(template.splitlines()):
         tokens = line.split()
         if not tokens or tokens[0][0] in "%/\\":
             continue
+        if features is not None:
+            # Node line, possibly prefixed by a relation operator ("< word sp=verb")
+            body = list(tokens)
+            while body and not (body[0][0].isalnum() or body[0][0] == "_"):
+                body.pop(0)
+            if body and body[0].split(":", 1)[-1] in types:
+                _check_feature_names(number, line, body[1:], features)
         first = tokens[0].split(":", 1)[-1]
         if not first or not (first[0].isalnum() or first[0] == "_"):
             continue  # relation operator or similar
@@ -137,6 +261,54 @@ def check_template(template: str, object_types: Any) -> None:
             f"object type. Each line must be '<object_type> feature=value ...', "
             f"e.g. 'book book=PSA' or 'clause typ=Way0'.{hint}"
         )
+    if structure:
+        _check_structure(template, types)
+
+
+def scope_template(
+    template: str,
+    corpus: str,
+    book: str | None,
+    chapter: int | None = None,
+    verse_start: int | None = None,
+    verse_end: int | None = None,
+    object_types: Any = (),
+) -> str:
+    """Wrap a search pattern in book/chapter/verse scope lines.
+
+    The caller writes only the pattern; the nesting and the corpus-native book
+    name are built here. Returns the template unchanged if no scope is given.
+    """
+    if book is None and chapter is None and verse_start is None and verse_end is None:
+        return template
+    if book is None:
+        raise TemplateError("chapter and verse_start/verse_end require book")
+    if chapter is None and (verse_start is not None or verse_end is not None):
+        raise TemplateError("verse_start/verse_end require chapter")
+    start = verse_start if verse_start is not None else (1 if verse_end else None)
+    end = verse_end if verse_end is not None else start
+    if start is not None and end is not None and end < start:
+        raise TemplateError(f"verse_end ({end}) is before verse_start ({start})")
+
+    scope = [f"book book={template_name(book, corpus)}"]
+    if chapter is not None:
+        scope.append(f"  chapter chapter={chapter}")
+    if start is not None:
+        verses = "|".join(str(v) for v in range(start, end + 1))
+        scope.append(f"    verse verse={verses}")
+    scope_types = ("book", "chapter", "verse")[: len(scope)]
+
+    lines = _template_lines(template, set(object_types))
+    for ln in lines or []:
+        if ln.otype in scope_types:
+            raise TemplateError(
+                f"Template line {ln.number}: {ln.text!r} repeats the scope already "
+                f"given by the book/chapter/verse parameters. Remove it and write "
+                f"only the pattern."
+            )
+
+    body = textwrap.indent(textwrap.dedent(template).strip("\n"), "  " * len(scope))
+    return "\n".join(scope) + "\n" + body + "\n"
 
 
 def _find_corpus_path(org_repo: str) -> str:
@@ -456,10 +628,33 @@ class CFEngine:
 
         return context
 
+    def _prepare_template(
+        self,
+        template: str,
+        corpus: str,
+        book: str | None = None,
+        chapter: int | None = None,
+        verse_start: int | None = None,
+        verse_end: int | None = None,
+    ) -> str:
+        """Validate a model-written pattern and apply the optional passage scope."""
+        if book is None and chapter is None and verse_start is None and verse_end is None:
+            return self._localize(template, corpus)
+        api = self._ensure_loaded(corpus)
+        types = api.F.otype.all
+        # Check the pattern as written; once it is wrapped, its lines are
+        # connected under the scope, so the structure checks do not apply.
+        check_template(template, types, api.Fall(), structure=False)
+        scoped = scope_template(
+            template, corpus, book, chapter, verse_start, verse_end, types
+        )
+        logger.info("Template scoped:\n%s", scoped)
+        return scoped
+
     def _localize(self, template: str, corpus: str) -> str:
         """Validate a model-written template and rewrite book names to the corpus form."""
         api = self._ensure_loaded(corpus)
-        check_template(template, api.F.otype.all)
+        check_template(template, api.F.otype.all, api.Fall())
         localized = localize_template(template, corpus)
         if localized != template:
             logger.info("Template book names rewritten:\n%s", localized)
@@ -470,13 +665,27 @@ class CFEngine:
         template: str,
         corpus: str = "hebrew",
         limit: int = 50,
+        book: str | None = None,
+        chapter: int | None = None,
+        verse_start: int | None = None,
+        verse_end: int | None = None,
     ) -> list[dict]:
-        """Search using a Text-Fabric search template for structural patterns."""
+        """Search using a Text-Fabric search template for structural patterns.
+
+        ``book``/``chapter``/``verse_start``/``verse_end`` scope the pattern to a
+        passage; the template then holds only the pattern, not the scope lines.
+        """
         api = self._ensure_loaded(corpus)
         feat_map = WORD_FEATURES.get(corpus, WORD_FEATURES["hebrew"])
         wtype = WORD_TYPE.get(corpus, "word")
 
-        results = list(api.S.search(self._localize(template, corpus)))
+        results = list(
+            api.S.search(
+                self._prepare_template(
+                    template, corpus, book, chapter, verse_start, verse_end
+                )
+            )
+        )
 
         output = []
         for result_tuple in results[:limit]:
@@ -729,6 +938,10 @@ class CFEngine:
         top_n: int = 50,
         limit: int = 100,
         corpus: str = "hebrew",
+        book: str | None = None,
+        chapter: int | None = None,
+        verse_start: int | None = None,
+        verse_end: int | None = None,
     ) -> dict:
         """Search with advanced return types.
 
@@ -740,12 +953,15 @@ class CFEngine:
             top_n: For statistics — max values per feature (default 50).
             limit: For results/passages — page size (default 100).
             corpus: Corpus name.
+            book, chapter, verse_start, verse_end: Scope the pattern to a passage.
         """
         self._ensure_loaded(corpus)
         from cfabric_mcp.tools import search as cf_search
 
         return cf_search(
-            template=self._localize(template, corpus),
+            template=self._prepare_template(
+                template, corpus, book, chapter, verse_start, verse_end
+            ),
             return_type=return_type,
             aggregate_features=aggregate_features,
             group_by_section=group_by_section,

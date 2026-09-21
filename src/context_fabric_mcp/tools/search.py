@@ -45,6 +45,10 @@ def register(mcp: FastMCP, engine: CFEngine) -> None:
         template: str,
         corpus: str = "hebrew",
         limit: int = 50,
+        book: str | None = None,
+        chapter: int | None = None,
+        verse_start: int | None = None,
+        verse_end: int | None = None,
     ) -> list[dict]:
         """Search for structural/syntactic patterns using Text-Fabric search templates.
 
@@ -73,6 +77,11 @@ def register(mcp: FastMCP, engine: CFEngine) -> None:
            book book=GEN
              word sp=verb vt=ptca
 
+        To search within a passage, pass book (and optionally chapter, verse_start,
+        verse_end) and write only the pattern in the template, e.g.
+        template="clause", book="PSA", chapter=23. Do not repeat book/chapter/verse
+        lines in the template in that case.
+
         Book names in `book=` (on book, chapter and verse lines) may be a USFM code,
         English name or Latin name; they are converted to the corpus's own form.
         Common object types (Hebrew): word, phrase, clause, sentence, book, chapter, verse
@@ -84,5 +93,11 @@ def register(mcp: FastMCP, engine: CFEngine) -> None:
             template: Text-Fabric search template string
             corpus: "hebrew" or "greek"
             limit: Max results to return (default 50)
+            book: Limit to a book (USFM code, English or Latin name)
+            chapter: Limit to a chapter (requires book)
+            verse_start: First verse (requires chapter)
+            verse_end: Last verse (defaults to verse_start)
         """
-        return engine.search_constructions(template, corpus, limit)
+        return engine.search_constructions(
+            template, corpus, limit, book, chapter, verse_start, verse_end
+        )
