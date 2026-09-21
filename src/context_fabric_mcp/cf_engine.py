@@ -7,8 +7,10 @@ types) is identical so that chat.py, quiz_engine.py, and api.py work unchanged.
 
 from __future__ import annotations
 
+import difflib
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Any
@@ -19,6 +21,7 @@ from cfabric.core.api import Api
 from context_fabric_mcp.books import (
     book_fields,
     get_book,
+    localize_template,
     book_name,
     section_name,
     template_name,
@@ -89,6 +92,51 @@ WORD_TYPE = {
 _EXCLUDE_FEATURES: dict[str, set[str]] = {
     "greek": {"nodeId"},
 }
+
+
+class TemplateError(ValueError):
+    """Raised when a search template is malformed in a way Text-Fabric hides.
+
+    Text-Fabric prints template errors to stdout and returns no results, so
+    without this check the caller only sees an empty result.
+    """
+
+
+_FEATURE_TOKEN_RE = re.compile(r"^\w[\w@]*[=#~]")
+
+
+def check_template(template: str, object_types: Any) -> None:
+    """Reject template lines that do not start with a known object type.
+
+    Deliberately narrow: only a first token that is not an object type *and*
+    looks like a feature constraint (``book@en=Psalms``) or is followed by one
+    (``clse typ=Way0``) is flagged. Relation lines, named atoms, comments and
+    quantifier lines pass through.
+    """
+    types = set(object_types)
+    for number, line in enumerate(template.splitlines()):
+        tokens = line.split()
+        if not tokens or tokens[0][0] in "%/\\":
+            continue
+        first = tokens[0].split(":", 1)[-1]
+        if not first or not (first[0].isalnum() or first[0] == "_"):
+            continue  # relation operator or similar
+        if first in types:
+            continue
+        if not (
+            re.search(r"[=#~@]", first)
+            or any(_FEATURE_TOKEN_RE.match(t) for t in tokens[1:])
+        ):
+            continue  # e.g. a named atom in a relation line: "a < b"
+        hint = ""
+        close = difflib.get_close_matches(first, types, n=3)
+        if close:
+            hint = f" Did you mean {', '.join(close)}?"
+        raise TemplateError(
+            f"Template line {number}: {line.strip()!r} does not start with an "
+            f"object type. Each line must be '<object_type> feature=value ...', "
+            f"e.g. 'book book=PSA' or 'clause typ=Way0'.{hint}"
+        )
 
 
 def _find_corpus_path(org_repo: str) -> str:
@@ -408,6 +456,15 @@ class CFEngine:
 
         return context
 
+    def _localize(self, template: str, corpus: str) -> str:
+        """Validate a model-written template and rewrite book names to the corpus form."""
+        api = self._ensure_loaded(corpus)
+        check_template(template, api.F.otype.all)
+        localized = localize_template(template, corpus)
+        if localized != template:
+            logger.info("Template book names rewritten:\n%s", localized)
+        return localized
+
     def search_constructions(
         self,
         template: str,
@@ -419,7 +476,7 @@ class CFEngine:
         feat_map = WORD_FEATURES.get(corpus, WORD_FEATURES["hebrew"])
         wtype = WORD_TYPE.get(corpus, "word")
 
-        results = list(api.S.search(template))
+        results = list(api.S.search(self._localize(template, corpus)))
 
         output = []
         for result_tuple in results[:limit]:
@@ -688,7 +745,7 @@ class CFEngine:
         from cfabric_mcp.tools import search as cf_search
 
         return cf_search(
-            template=template,
+            template=self._localize(template, corpus),
             return_type=return_type,
             aggregate_features=aggregate_features,
             group_by_section=group_by_section,
@@ -733,7 +790,7 @@ class CFEngine:
             try:
                 self._ensure_loaded(corpus_id)
                 results[corpus_id] = cf_search(
-                    template=template,
+                    template=self._localize(template, corpus_id),
                     return_type=return_type,
                     limit=limit,
                     corpus=corpus_id,

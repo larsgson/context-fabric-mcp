@@ -74,7 +74,7 @@ Books are identified by their three-letter [USFM](https://ubsicap.github.io/usfm
 
 On input, the `book` parameter also accepts English names (`Psalms`, `1 Samuel`) and the Latin names used by BHSA (`Psalmi`), case-insensitively. An unknown book returns `404` with a suggestion. The mapping lives in `src/context_fabric_mcp/books.py`.
 
-Note that inside Text-Fabric search templates the raw `book` feature is Latin in the Hebrew corpus, so match English names there with `book@en=Psalms` (or use the tool parameters, which handle this for you).
+In search templates, a plain `book=<name>` on a book, chapter or verse line is rewritten to the corpus's own form (the raw Hebrew `book` feature is Latin), so `book=PSA`, `book=Psalms` and `book=Psalmi` all work. More complex constraints (alternation, negation, regex, `book@en=`) are passed through untouched.
 
 ## MCP Tools
 

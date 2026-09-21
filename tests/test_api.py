@@ -357,3 +357,13 @@ class TestBookResolution:
         )
         assert resp.status_code == 404
         assert "PSA" in resp.json()["detail"]
+
+
+class TestTemplateErrors:
+    def test_malformed_template_is_400_with_hint(self, client):
+        resp = client.post(
+            "/api/search/constructions",
+            json={"template": "book@en=Psalms\n chapter chapter=23\n clause", "corpus": "hebrew"},
+        )
+        assert resp.status_code == 400
+        assert "object type" in resp.json()["detail"]

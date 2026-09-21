@@ -12,6 +12,7 @@ from context_fabric_mcp.books import (
     book_fields,
     book_name,
     codes_for_corpus,
+    localize_template,
     resolve_book,
     section_name,
     template_name,
@@ -127,6 +128,56 @@ class TestCorpusNames:
             section_name("PSA", "greek")
         with pytest.raises(UnknownBookError, match="not in the hebrew"):
             template_name("MAT", "hebrew")
+
+
+class TestLocalizeTemplate:
+    SCOPED = "book book={}\n  chapter chapter=23\n    clause\n"
+
+    @pytest.mark.parametrize("spelling", ["PSA", "Psalms", "Psalmi", "psalm"])
+    def test_hebrew_spellings_become_latin(self, spelling):
+        out = localize_template(self.SCOPED.format(spelling), "hebrew")
+        assert out == self.SCOPED.format("Psalmi")
+
+    def test_greek_becomes_code(self):
+        out = localize_template("book book=Matthew\n  word cls=noun\n", "greek")
+        assert out == "book book=MAT\n  word cls=noun\n"
+
+    def test_chapter_and_verse_lines_and_atom_names(self):
+        out = localize_template(
+            "verse book=Psalms chapter=23 verse=1\nb:book book=Job", "hebrew"
+        )
+        assert out == "verse book=Psalmi chapter=23 verse=1\nb:book book=Iob"
+
+    def test_is_idempotent(self):
+        once = localize_template(self.SCOPED.format("Psalms"), "hebrew")
+        assert localize_template(once, "hebrew") == once
+
+    @pytest.mark.parametrize(
+        "template",
+        [
+            "book book=Psalmi|Iob",  # alternation
+            "book book#Psalmi",  # negation
+            "book book~Ps.*",  # regex
+            "book book@en=Psalms",  # already the English feature
+            "clause book=Psalms",  # not a book/chapter/verse line
+            "word sp=verb\n  % book=Psalms in a comment",
+            "bookmark book=Psalms",  # object type merely starts with 'book'
+        ],
+    )
+    def test_other_forms_pass_through(self, template):
+        assert localize_template(template, "hebrew") == template
+
+    def test_other_constraints_kept(self):
+        out = localize_template("chapter book=Isaiah chapter=53", "hebrew")
+        assert out == "chapter book=Jesaia chapter=53"
+
+    def test_unknown_book_raises_with_hint(self):
+        with pytest.raises(UnknownBookError, match="PSA"):
+            localize_template(self.SCOPED.format("Psalmz"), "hebrew")
+
+    def test_book_from_other_corpus_raises(self):
+        with pytest.raises(UnknownBookError, match="not in the greek"):
+            localize_template("book book=PSA", "greek")
 
 
 @pytest.fixture(scope="module")

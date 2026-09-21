@@ -7,7 +7,7 @@ TF-format data for BHSA and Nestle 1904).
 import pytest
 
 from context_fabric_mcp.books import UnknownBookError
-from context_fabric_mcp.cf_engine import CFEngine
+from context_fabric_mcp.cf_engine import CFEngine, TemplateError, check_template
 
 
 @pytest.fixture(scope="module")
@@ -319,3 +319,82 @@ class TestBookAliases:
     def test_book_from_other_corpus_raises(self, engine: CFEngine):
         with pytest.raises(UnknownBookError, match="not in the greek"):
             engine.get_passage("PSA", 23, 1, 1, "greek")
+
+
+class TestTemplateBookRewrite:
+    """Model-written templates may name books in any accepted spelling."""
+
+    TEMPLATE = "book book={}\n  chapter chapter=23\n    clause\n"
+
+    @pytest.mark.parametrize("book", ["PSA", "Psalms", "Psalmi"])
+    def test_search_constructions(self, engine: CFEngine, book: str):
+        results = engine.search_constructions(
+            self.TEMPLATE.format(book), "hebrew", limit=1000
+        )
+        assert len(results) == 17
+
+    @pytest.mark.parametrize("book", ["PSA", "Psalmi"])
+    def test_search_advanced_count(self, engine: CFEngine, book: str):
+        result = engine.search_advanced(
+            self.TEMPLATE.format(book), return_type="count", corpus="hebrew"
+        )
+        assert result["total_count"] == 17
+
+    def test_verse_line(self, engine: CFEngine):
+        template = "verse book=PSA chapter=23 verse=1\n  clause\n"
+        assert engine.search_constructions(template, "hebrew", limit=50)
+
+    def test_search_comparative_each_corpus_gets_its_own_form(self, engine: CFEngine):
+        result = engine.search_comparative(
+            "book book=Psalms\n  chapter chapter=23\n    clause\n",
+            "book book=Matthew\n  chapter chapter=1\n    clause\n",
+            return_type="count",
+        )
+        for corpus, out in result["comparison"].items():
+            assert "error" not in out, (corpus, out)
+
+    def test_unknown_book_raises(self, engine: CFEngine):
+        with pytest.raises(UnknownBookError, match="PSA"):
+            engine.search_constructions(self.TEMPLATE.format("Psalmz"), "hebrew")
+
+
+class TestCheckTemplate:
+    TYPES = ("book", "chapter", "verse", "clause", "phrase", "word")
+
+    def test_rejects_line_without_object_type(self):
+        """The template the model actually sent to the deployed server."""
+        with pytest.raises(TemplateError, match="does not start with an object type"):
+            check_template("book@en=Psalms\n chapter chapter=23\n clause", self.TYPES)
+
+    def test_rejects_typo_in_object_type_with_hint(self):
+        with pytest.raises(TemplateError, match="Did you mean clause"):
+            check_template("clse typ=Way0", self.TYPES)
+
+    @pytest.mark.parametrize(
+        "template",
+        [
+            "book book=PSA\n  chapter chapter=23\n    clause",
+            "clause typ=Way0\n  phrase function=Pred\n    word sp=verb vs=qal",
+            "clause\n  word sp=verb\n  < word sp=nmpr",  # leading relation operator
+            "a:word sp=verb\nb:word sp=nmpr\na < b",  # named atoms + relation line
+            "a:word\nb:word\na <: b",
+            "% a comment line\nword sp=verb",
+            "clause\n  /without/\n    word sp=verb\n  /-/",  # quantifier
+            "\n\nword sp=verb\n\n",  # blank lines
+            "word sp=verb vt=infc",
+        ],
+    )
+    def test_valid_syntax_passes(self, template):
+        check_template(template, self.TYPES)
+
+    def test_engine_raises_instead_of_returning_empty(self, engine: CFEngine):
+        with pytest.raises(TemplateError):
+            engine.search_constructions(
+                "book@en=Psalms\n chapter chapter=23\n clause", "hebrew"
+            )
+        with pytest.raises(TemplateError):
+            engine.search_advanced("clse typ=Way0", corpus="hebrew")
+
+    def test_all_existing_test_templates_still_run(self, engine: CFEngine):
+        template = "book book=Genesis\n  chapter chapter=1\n    clause typ=Way0\n"
+        assert engine.search_constructions(template, "hebrew", limit=5)

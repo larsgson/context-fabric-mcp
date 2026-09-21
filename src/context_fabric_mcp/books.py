@@ -227,6 +227,34 @@ def template_name(value: str, corpus: str) -> str:
     return _in_corpus(value, corpus).template_name
 
 
+# Object types that carry the raw `book` feature (checked against BHSA).
+_TEMPLATE_LINE_RE = re.compile(
+    r"^(?P<head>[ \t]*(?:\w+:)?(?:book|chapter|verse))(?P<rest>(?:[ \t]+[^\n]*)?)$",
+    re.MULTILINE,
+)
+# A plain, single-valued `book=X` token. Alternation (a|b), negation, regex and
+# other features such as `book@en=` do not match and pass through untouched.
+_BOOK_TOKEN_RE = re.compile(r"(?<!\S)book=([^\s|#~<>=!]+)(?!\S)")
+
+
+def localize_template(template: str, corpus: str) -> str:
+    """Rewrite ``book=<any spelling>`` in a search template to the native form.
+
+    Only plain ``book=X`` constraints on book/chapter/verse lines are touched,
+    so ``book=PSA``, ``book=Psalms`` and ``book=Psalmi`` all work in a Hebrew
+    template. Raises UnknownBookError for an unrecognised book instead of
+    letting the search silently match nothing.
+    """
+
+    def fix_token(m: re.Match[str]) -> str:
+        return f"book={template_name(m.group(1), corpus)}"
+
+    def fix_line(m: re.Match[str]) -> str:
+        return m.group("head") + _BOOK_TOKEN_RE.sub(fix_token, m.group("rest"))
+
+    return _TEMPLATE_LINE_RE.sub(fix_line, template)
+
+
 def codes_for_corpus(corpus: str) -> list[str]:
     """USFM codes of the books in a corpus, in corpus order."""
     return [b.code for b in BOOKS.values() if b.corpus == corpus]

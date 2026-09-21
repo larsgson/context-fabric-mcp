@@ -34,15 +34,15 @@ Hebrew lexemes use ETCBC transliteration: BR>[ = create, >MR[ = say, HLK[ = walk
 The trailing [ or / indicates word class ([ = verb, / = noun/other).
 
 ### Search template syntax (for search_constructions)
-Indentation = containment. Each line: object_type feature=value feature=value
+Indentation = containment: indent each nesting level by exactly 2 spaces (nodes at the same indent are siblings, not nested). Every line starts with an object type: object_type feature=value feature=value
 ```
 clause typ=Way0
   phrase function=Pred
     word sp=verb vs=qal
 ```
-Scope a search to a passage by nesting inside book and chapter (they are node types, not features of clause/phrase/word). Inside a search template the book is matched differently from tool parameters: in Hebrew templates use `book@en=` with the English name (underscores for spaces: 1_Samuel, Song_of_songs); the plain `book` feature holds Latin names (Psalmi), so `book=Psalms` or `book=PSA` finds nothing. In Greek templates use the code: `book book=MAT`.
+Scope a search to a passage by nesting inside book and chapter (they are node types, not features of clause/phrase/word). Use the book code:
 ```
-book book@en=Psalms
+book book=PSA
   chapter chapter=23
     clause
 ```

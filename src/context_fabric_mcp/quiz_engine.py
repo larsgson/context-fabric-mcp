@@ -12,6 +12,7 @@ from typing import Any
 from context_fabric_mcp.books import (
     UnknownBookError,
     book_fields,
+    localize_template,
     template_name,
 )
 from context_fabric_mcp.cf_engine import WORD_FEATURES, WORD_TYPE, CFEngine
@@ -114,23 +115,24 @@ def generate_session(
 
     # Build the scoped search template
     book = template_name(quiz.book, quiz.corpus)
+    user_template = localize_template(quiz.search_template, quiz.corpus)
     scope_lines = []
     if quiz.verse_start is not None and quiz.verse_end is not None:
         # Verse-level scope — search within chapter, filter by verse after
         scope_lines.append(f"book book={book}")
         scope_lines.append(f"  chapter chapter={quiz.chapter_start}")
         # Indent the user template under chapter
-        for line in quiz.search_template.strip().splitlines():
+        for line in user_template.strip().splitlines():
             scope_lines.append(f"    {line}")
     elif quiz.chapter_start == quiz.chapter_end:
         scope_lines.append(f"book book={book}")
         scope_lines.append(f"  chapter chapter={quiz.chapter_start}")
-        for line in quiz.search_template.strip().splitlines():
+        for line in user_template.strip().splitlines():
             scope_lines.append(f"    {line}")
     else:
         # Multi-chapter — just scope to book, filter chapters after
         scope_lines.append(f"book book={book}")
-        for line in quiz.search_template.strip().splitlines():
+        for line in user_template.strip().splitlines():
             scope_lines.append(f"  {line}")
 
     template = "\n".join(scope_lines) + "\n"

@@ -70,11 +70,11 @@ def register(mcp: FastMCP, engine: CFEngine) -> None:
              word sp=verb vt=infc
 
         4. Find all participles in Genesis:
-           book book@en=Genesis
+           book book=GEN
              word sp=verb vt=ptca
 
-        In Hebrew templates book names go through `book@en=` (English); the plain
-        `book` feature holds Latin names such as Psalmi.
+        Book names in `book=` (on book, chapter and verse lines) may be a USFM code,
+        English name or Latin name; they are converted to the corpus's own form.
         Common object types (Hebrew): word, phrase, clause, sentence, book, chapter, verse
         Common phrase features: typ (NP/VP/PP/CP), function (Subj/Objc/Pred), det, rela
         Common clause features: typ, kind (NC/VC), rela, txt, domain
