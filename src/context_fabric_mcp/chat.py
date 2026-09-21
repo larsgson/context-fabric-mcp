@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from openai import (
+    APIStatusError,
     APIConnectionError,
     APITimeoutError,
     InternalServerError,
@@ -44,11 +45,18 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OPENAI_FALLBACK_DAILY_LIMIT = int(os.getenv("OPENAI_FALLBACK_DAILY_LIMIT", "50"))
 
+# Groq's free tier caps tokens-per-minute (~8k for gpt-oss-120b), so keep each
+# tool result small enough that a multi-tool turn stays under it.
+MAX_TOOL_RESULT_CHARS = int(os.getenv("MAX_TOOL_RESULT_CHARS", "6000"))
+
+# 413 (request too large for the tier's TPM) is not mapped to RateLimitError by
+# the SDK, but is worth falling back for just the same.
 _FALLBACK_EXCEPTIONS = (
     RateLimitError,
     APIConnectionError,
     APITimeoutError,
     InternalServerError,
+    APIStatusError,
 )
 
 
@@ -126,11 +134,11 @@ _EXPLORATION_TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "book": {"type": "string", "description": "Book name"},
-                "chapter": {"type": "integer", "description": "Chapter number"},
-                "verse_start": {"type": "integer", "description": "Start verse"},
-                "verse_end": {"type": "integer", "description": "End verse"},
-                "corpus": {"type": "string", "description": "Corpus name"},
+                "book": {"type": "string"},
+                "chapter": {"type": "integer"},
+                "verse_start": {"type": "integer"},
+                "verse_end": {"type": "integer"},
+                "corpus": {"type": "string"},
             },
             "required": ["book", "chapter"],
         },
@@ -141,7 +149,7 @@ _EXPLORATION_TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "corpus": {"type": "string", "description": "Corpus name"},
+                "corpus": {"type": "string"},
             },
             "required": [],
         },
@@ -152,9 +160,9 @@ _EXPLORATION_TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "corpus": {"type": "string", "description": "Corpus name"},
-                "book": {"type": "string", "description": "Book name"},
-                "chapter": {"type": "integer", "description": "Chapter number"},
+                "corpus": {"type": "string"},
+                "book": {"type": "string"},
+                "chapter": {"type": "integer"},
                 "features": {
                     "type": "object",
                     "description": "Feature name/value pairs",
@@ -172,7 +180,7 @@ _EXPLORATION_TOOL_SPECS = [
             "type": "object",
             "properties": {
                 "template": {"type": "string", "description": "Search template"},
-                "corpus": {"type": "string", "description": "Corpus name"},
+                "corpus": {"type": "string"},
                 "limit": {"type": "integer", "description": "Max results"},
             },
             "required": ["template"],
@@ -185,7 +193,7 @@ _EXPLORATION_TOOL_SPECS = [
             "type": "object",
             "properties": {
                 "lexeme": {"type": "string", "description": "Lexeme identifier"},
-                "corpus": {"type": "string", "description": "Corpus name"},
+                "corpus": {"type": "string"},
                 "limit": {"type": "integer", "description": "Max occurrences"},
             },
             "required": ["lexeme"],
@@ -197,11 +205,11 @@ _EXPLORATION_TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "book": {"type": "string", "description": "Book name"},
-                "chapter": {"type": "integer", "description": "Chapter number"},
-                "verse_start": {"type": "integer", "description": "Start verse"},
-                "verse_end": {"type": "integer", "description": "End verse"},
-                "corpus": {"type": "string", "description": "Corpus name"},
+                "book": {"type": "string"},
+                "chapter": {"type": "integer"},
+                "verse_start": {"type": "integer"},
+                "verse_end": {"type": "integer"},
+                "corpus": {"type": "string"},
             },
             "required": ["book", "chapter"],
         },
@@ -212,11 +220,11 @@ _EXPLORATION_TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "book": {"type": "string", "description": "Book name"},
-                "chapter": {"type": "integer", "description": "Chapter number"},
-                "verse": {"type": "integer", "description": "Verse number"},
+                "book": {"type": "string"},
+                "chapter": {"type": "integer"},
+                "verse": {"type": "integer"},
                 "word_index": {"type": "integer", "description": "Word index in verse"},
-                "corpus": {"type": "string", "description": "Corpus name"},
+                "corpus": {"type": "string"},
             },
             "required": ["book", "chapter", "verse"],
         },
@@ -249,7 +257,7 @@ _EXPLORATION_TOOL_SPECS = [
                     "type": "integer",
                     "description": "Max sample values (default 20)",
                 },
-                "corpus": {"type": "string", "description": "Corpus name"},
+                "corpus": {"type": "string"},
             },
             "required": ["feature"],
         },
@@ -266,7 +274,7 @@ _EXPLORATION_TOOL_SPECS = [
                     "items": {"type": "string"},
                     "description": "Filter to features for these types (e.g. ['word'])",
                 },
-                "corpus": {"type": "string", "description": "Corpus name"},
+                "corpus": {"type": "string"},
             },
             "required": [],
         },
@@ -299,7 +307,7 @@ _EXPLORATION_TOOL_SPECS = [
                     "type": "integer",
                     "description": "Page size for results/passages",
                 },
-                "corpus": {"type": "string", "description": "Corpus name"},
+                "corpus": {"type": "string"},
             },
             "required": ["template"],
         },
@@ -330,7 +338,7 @@ _EXPLORATION_TOOL_SPECS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "corpus": {"type": "string", "description": "Corpus name"},
+                "corpus": {"type": "string"},
             },
             "required": [],
         },
@@ -347,7 +355,7 @@ _EXPLORATION_TOOL_SPECS = [
                     "type": "string",
                     "description": "'from' (outgoing) or 'to' (incoming)",
                 },
-                "corpus": {"type": "string", "description": "Corpus name"},
+                "corpus": {"type": "string"},
             },
             "required": ["node", "edge_feature"],
         },
@@ -392,7 +400,7 @@ _BUILD_QUIZ_TOOL_SPEC = {
         "type": "object",
         "properties": {
             "title": {"type": "string", "description": "Quiz title"},
-            "book": {"type": "string", "description": "Book name"},
+            "book": {"type": "string"},
             "chapter_start": {"type": "integer", "description": "Starting chapter"},
             "chapter_end": {"type": "integer", "description": "Ending chapter"},
             "verse_start": {
@@ -622,6 +630,11 @@ def _create_completion(
                 tool_choice="auto",
             )
         except _FALLBACK_EXCEPTIONS as e:
+            if isinstance(e, APIStatusError) and e.status_code not in (
+                413,
+                429,
+            ) and e.status_code < 500:
+                raise  # client errors (400/401/404...) won't be fixed by OpenAI
             if openai is None:
                 logger.warning("Groq failed (%s) and no OpenAI fallback configured", e)
                 raise
@@ -719,8 +732,8 @@ def _chat_loop(
             try:
                 result = _execute_tool(engine, name, args)
                 result_str = json.dumps(result, ensure_ascii=False, default=str)
-                if len(result_str) > 20000:
-                    result_str = result_str[:20000] + "... (truncated)"
+                if len(result_str) > MAX_TOOL_RESULT_CHARS:
+                    result_str = result_str[:MAX_TOOL_RESULT_CHARS] + "... (truncated)"
                 result_data = (
                     json.loads(result_str)
                     if not result_str.endswith("(truncated)")
