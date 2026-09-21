@@ -128,6 +128,11 @@ def _check_feature_names(
 
 _SCOPE_TYPES = ("book", "chapter", "verse")
 
+# Result objects: text of nodes longer than this many slots is replaced by a
+# marker (a whole book or a long chapter would swamp the response), and
+# book/chapter/verse nodes carry only their position, not every feature.
+_TEXT_MAX_SLOTS = 300
+
 
 class _TemplateLine(NamedTuple):
     number: int
@@ -259,7 +264,8 @@ def check_template(
         raise TemplateError(
             f"Template line {number}: {line.strip()!r} does not start with an "
             f"object type. Each line must be '<object_type> feature=value ...', "
-            f"e.g. 'book book=PSA' or 'clause typ=Way0'.{hint}"
+            f"e.g. 'clause typ=Way0'.{hint} "
+            f"Valid object types: {', '.join(sorted(types))}."
         )
     if structure:
         _check_structure(template, types)
@@ -636,10 +642,14 @@ class CFEngine:
         chapter: int | None = None,
         verse_start: int | None = None,
         verse_end: int | None = None,
-    ) -> str:
-        """Validate a model-written pattern and apply the optional passage scope."""
+    ) -> tuple[str, int]:
+        """Validate a model-written pattern and apply the optional passage scope.
+
+        Returns the template and how many leading nodes of each result are the
+        injected scope (book/chapter/verse), which callers leave out of results.
+        """
         if book is None and chapter is None and verse_start is None and verse_end is None:
-            return self._localize(template, corpus)
+            return self._localize(template, corpus), 0
         api = self._ensure_loaded(corpus)
         types = api.F.otype.all
         # Check the pattern as written; once it is wrapped, its lines are
@@ -649,7 +659,8 @@ class CFEngine:
             template, corpus, book, chapter, verse_start, verse_end, types
         )
         logger.info("Template scoped:\n%s", scoped)
-        return scoped
+        has_verse = verse_start is not None or verse_end is not None
+        return scoped, 1 + (chapter is not None) + has_verse
 
     def _localize(self, template: str, corpus: str) -> str:
         """Validate a model-written template and rewrite book names to the corpus form."""
@@ -679,20 +690,18 @@ class CFEngine:
         feat_map = WORD_FEATURES.get(corpus, WORD_FEATURES["hebrew"])
         wtype = WORD_TYPE.get(corpus, "word")
 
-        results = list(
-            api.S.search(
-                self._prepare_template(
-                    template, corpus, book, chapter, verse_start, verse_end
-                )
-            )
+        prepared, skip = self._prepare_template(
+            template, corpus, book, chapter, verse_start, verse_end
         )
+        results = list(api.S.search(prepared))
 
         output = []
         for result_tuple in results[:limit]:
             entry: dict[str, Any] = {"objects": []}
-            for node in result_tuple:
+            for node in result_tuple[skip:]:
                 otype = api.F.otype.v(node)
                 section = api.T.sectionFromNode(node)
+                slots = len(api.E.oslots.s(node))
                 obj: dict[str, Any] = {
                     "type": otype,
                     **(
@@ -702,11 +711,15 @@ class CFEngine:
                     ),
                     "chapter": section[1] if len(section) > 1 else 0,
                     "verse": section[2] if len(section) > 2 else 0,
-                    "text": api.T.text(node),
+                    "text": (
+                        api.T.text(node)
+                        if slots <= _TEXT_MAX_SLOTS
+                        else f"[{slots} slots - text omitted]"
+                    ),
                 }
                 if otype == wtype:
                     obj["word"] = self._word_info(api, node, feat_map).model_dump()
-                else:
+                elif otype not in _SCOPE_TYPES:
                     features = {}
                     for feat_name in sorted(api.Fall()):
                         feat_obj = api.Fs(feat_name)
@@ -961,7 +974,7 @@ class CFEngine:
         return cf_search(
             template=self._prepare_template(
                 template, corpus, book, chapter, verse_start, verse_end
-            ),
+            )[0],
             return_type=return_type,
             aggregate_features=aggregate_features,
             group_by_section=group_by_section,

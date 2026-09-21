@@ -22,7 +22,7 @@ Tool results give `book` as the code and `book_name` as the display name; cite b
 |---------|-------------|--------|
 | sp | Part of speech | verb, subs, prep, adjv, advb, conj, art, prps, prde, prin, intj, nega, inrg, nmpr |
 | vs | Verbal stem | qal, nif, piel, pual, hif, hof, hit, etpa, etpe, pael, peal, afel, shaf, ... |
-| vt | Verbal tense | perf, impf, wayq, impv, infa, infc, ptca, ptcp, juss, coho |
+| vt | Verbal tense | perf (perfect), impf (imperfect), wayq (wayyiqtol, narrative past), impv (imperative), infa/infc (infinitive absolute/construct), ptca/ptcp (active/passive participle), juss, coho |
 | gn | Gender | m, f |
 | nu | Number | sg, pl, du |
 | ps | Person | p1, p2, p3 |
@@ -34,7 +34,7 @@ Hebrew lexemes use ETCBC transliteration: BR>[ = create, >MR[ = say, HLK[ = walk
 The trailing [ or / indicates word class ([ = verb, / = noun/other).
 
 ### Search template syntax (for search_constructions)
-Indentation = containment: indent each nesting level by exactly 2 spaces (nodes at the same indent are siblings, not nested). Every line starts with an object type: object_type feature=value feature=value
+Object types — hebrew: word, phrase, clause, sentence, verse, chapter, book; greek: w (the word type; not `word`), wg, phrase, clause, sentence, verse, chapter, book. Indentation = containment: indent each nesting level by exactly 2 spaces (nodes at the same indent are siblings, not nested). Every line starts with an object type: object_type feature=value feature=value
 ```
 clause typ=Way0
   phrase function=Pred
@@ -44,7 +44,7 @@ Scope a search with the book, chapter, verse_start/verse_end parameters and writ
 Operators: `<` = followed by (adjacency), `<<` = comes before (sequence)
 
 ### Phrase features: typ (NP/VP/PP/CP/AdjP/AdvP), function (Subj/Objc/Pred/Cmpl/Adju), det, rela
-### Clause features: typ (Way0/XQtl/NmCl/Ptcp/InfC/...), kind (NC/VC), rela, domain
+### Clause features: typ (Way0 = wayyiqtol clause, NmCl = nominal clause, XQtl/Ptcp/InfC/...), kind (NC/VC), rela, domain
 
 ## Greek Feature Reference
 
@@ -60,14 +60,18 @@ Operators: `<` = followed by (adjacency), `<<` = comes before (sequence)
 | voice | Voice | active, middle, passive, middle_or_passive |
 | mood | Mood | indicative, imperative, subjunctive, optative, infinitive, participle |
 
+### Greek templates
+The word object type is `w`: `w cls=verb tense=aorist`.
+
 ### Lexeme format
 Greek lexemes are in Greek script: λόγος, θεός, ἄνθρωπος
 
 ## Strategy
 
-- Passage text: get_passage. Clause/phrase structure of a passage: one search_constructions call (pattern `clause` + book/chapter parameters), not per-word lookups. Single-word analysis: get_word_context (or get_edge_features for dependencies).
+- Passage text: get_passage. Clause/phrase structure of a passage: one search_constructions call (pattern `clause` + book/chapter parameters), not per-word lookups. Syntactic parent/structure of a verse or word: get_word_context (or get_edge_features for dependencies).
 - Never search an unscoped node type like "clause" alone; it returns thousands of results. Always pass book/chapter.
-- Finding words: search_words for morphology; search_constructions or search_advanced for syntactic patterns. Use search_advanced return_type="count" or "statistics" for numbers.
+- Morphology within a book/chapter: search_words with book (and chapter) plus features, e.g. hiphil imperatives in Deuteronomy = search_words book DEU, features vs=hif vt=impv. Never search a whole corpus when the question names a book.
+- Finding words: search_words for morphology; search_constructions or search_advanced for syntactic patterns. Use search_advanced return_type="count" or "statistics" for numbers. A result marked "truncated" is partial: say so, and narrow the search or count instead of presenting it as complete.
 - Before searching, call describe_feature to see valid feature values, and search_syntax_guide if unsure of template syntax.
 - Comparisons: compare_distribution or search_comparative. Complex questions: chain tools (search, then context, then summarize).
 - Vocabulary: get_lexeme_info / get_vocabulary. Edges: list_edge_features, then get_edge_features. Data model: list_corpora, list_books, get_schema, list_features.

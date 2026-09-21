@@ -4,6 +4,8 @@ These tests require corpus data to be available locally (pre-downloaded
 TF-format data for BHSA and Nestle 1904).
 """
 
+import json
+
 import pytest
 
 from context_fabric_mcp.books import UnknownBookError
@@ -582,7 +584,8 @@ class TestScopeParameters:
             "book book=PSA\n  chapter chapter=23\n    clause", "hebrew", limit=100
         )
         assert len(by_param) == len(by_hand) == 17
-        assert by_param == by_hand
+        # the injected book/chapter scope is left out of scoped results
+        assert [r["objects"] for r in by_param] == [r["objects"][2:] for r in by_hand]
 
     def test_every_result_is_inside_the_chapter(self, engine: CFEngine):
         results = engine.search_constructions(
@@ -652,3 +655,37 @@ class TestScopeParameters:
             engine.search_constructions("clause", "hebrew", 5, book="Psalmz")
         with pytest.raises(UnknownBookError, match="not in the greek"):
             engine.search_constructions("w", "greek", 5, book="PSA")
+
+
+class TestResultObjects:
+    def test_scoped_results_contain_only_the_pattern(self, engine: CFEngine):
+        results = engine.search_constructions("clause", "hebrew", 100, "PSA", 23)
+        assert all([o["type"] for o in r["objects"]] == ["clause"] for r in results)
+
+    def test_scope_nodes_skipped_for_verse_scope_too(self, engine: CFEngine):
+        results = engine.search_constructions(
+            "clause\n  phrase", "hebrew", 100, "PSA", 23, verse_start=1
+        )
+        assert all([o["type"] for o in r["objects"]] == ["clause", "phrase"] for r in results)
+
+    def test_container_objects_do_not_swamp_the_result(self, engine: CFEngine):
+        """A hand-written scope returns book/chapter nodes; they must stay small."""
+        results = engine.search_constructions(
+            "book book=PSA\n  chapter chapter=23\n    clause", "hebrew", 100
+        )
+        book, chapter, clause = results[0]["objects"]
+        assert book["text"] == "[25372 slots - text omitted]"
+        assert "features" not in book and "features" not in chapter
+        assert chapter["text"].startswith("מִזְמֹ")  # Psalm 23 is short enough to show
+        assert "features" in clause
+        assert len(json.dumps(results[0], ensure_ascii=False)) < 2000
+
+    def test_long_chapter_text_is_omitted(self, engine: CFEngine):
+        results = engine.search_constructions(
+            "book book=PSA\n  chapter chapter=119", "hebrew", 1
+        )
+        assert results[0]["objects"][1]["text"].endswith("slots - text omitted]")
+
+    def test_unknown_object_type_error_lists_valid_types(self, engine: CFEngine):
+        with pytest.raises(TemplateError, match="Valid object types:.*\\bw\\b"):
+            engine.search_constructions("word cls=verb", "greek")

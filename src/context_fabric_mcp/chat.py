@@ -628,6 +628,69 @@ def _execute_build_quiz(engine: CFEngine, args: dict[str, Any]) -> Any:
     }
 
 
+_TRUNCATED_NOTE = (
+    "Result cut to fit the size limit, so it is NOT complete. Say so in your "
+    "answer. Narrow the search (book/chapter/verse parameters, a smaller limit) "
+    "or use search_advanced with return_type='count' for totals."
+)
+
+
+def _dumps(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def _fit_result(result: Any, max_chars: int) -> tuple[str, Any]:
+    """Serialise a tool result within ``max_chars``, flagging any cut.
+
+    Oversized lists (or a dict's ``results`` list) are cut at whole items and
+    wrapped with ``truncated``/``shown``/``total`` so the model can tell the
+    data is partial. Returns the JSON string and the parsed value.
+    """
+    full = _dumps(result)
+    if len(full) <= max_chars:
+        return full, json.loads(full)
+
+    items: list[Any] | None = None
+    rebuild: Any = None
+    if isinstance(result, list):
+        items = result
+        rebuild = lambda kept: {  # noqa: E731
+            "truncated": True,
+            "shown": len(kept),
+            "total": len(items),
+            "note": _TRUNCATED_NOTE,
+            "results": kept,
+        }
+    elif isinstance(result, dict) and isinstance(result.get("results"), list):
+        items = result["results"]
+        rebuild = lambda kept: {  # noqa: E731
+            **{k: v for k, v in result.items() if k != "results"},
+            "truncated": True,
+            "shown": len(kept),
+            "total": len(items),
+            "note": _TRUNCATED_NOTE,
+            "results": kept,
+        }
+
+    if items is not None:
+        # largest prefix that fits (binary search; 0 items is the fallback)
+        lo, hi = 0, len(items)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if len(_dumps(rebuild(items[:mid]))) <= max_chars:
+                lo = mid
+            else:
+                hi = mid - 1
+        if lo > 0:
+            out = _dumps(rebuild(items[:lo]))
+            return out, json.loads(out)
+
+    out = _dumps(
+        {"truncated": True, "note": _TRUNCATED_NOTE, "partial": full[:max_chars]}
+    )
+    return out, json.loads(out)
+
+
 # ---------------------------------------------------------------------------
 # Completion call with Groq → OpenAI fallback
 # ---------------------------------------------------------------------------
@@ -756,14 +819,7 @@ def _chat_loop(
 
             try:
                 result = _execute_tool(engine, name, args)
-                result_str = json.dumps(result, ensure_ascii=False, default=str)
-                if len(result_str) > MAX_TOOL_RESULT_CHARS:
-                    result_str = result_str[:MAX_TOOL_RESULT_CHARS] + "... (truncated)"
-                result_data = (
-                    json.loads(result_str)
-                    if not result_str.endswith("(truncated)")
-                    else result_str
-                )
+                result_str, result_data = _fit_result(result, MAX_TOOL_RESULT_CHARS)
             except Exception as e:
                 logger.error("Tool error: %s", e)
                 result_str = json.dumps({"error": str(e)})
